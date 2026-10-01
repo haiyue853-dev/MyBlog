@@ -80,3 +80,11 @@
 - 验收用的模拟上游与 3101 测试服务已停止，端口已释放；正式预览回到 3000，正式库仍为站主 0、条目 0、附件 0，未被测试数据污染。
 - 提交 `8379a49`。未做云端部署，未验证真实 Iris 的进度返回（本轮用的是按真实接口字段写的模拟上游）。
 
+## 后续修复：输入框聚焦轮廓溢出圆角容器
+
+- 用户指出生活碎片搜索框聚焦时“框样式有问题”。本机 Chromium 复现：全局 `input:focus-visible{outline:2px solid var(--space-accent);outline-offset:4px}` 画在 `.search-field` 内部那个无边框输入上，得到一个直角矩形，向上下右溢出圆角胶囊，左侧被放大镜图标压住。
+- 同类问题共三处：生活碎片搜索、资料柜搜索（同属 `.search-field`），以及 Iris 聊天框 `.chat-input textarea`。资料柜“上传分类”是另一回事——它自带边框，聚焦时边框外再套一圈亮粉 outline，形成刺眼的双层环，与奶油柔粉配色不搭。
+- 修法：文本框类控件（排除 checkbox/radio/file/color）聚焦改为 `outline:none` + 主题色边框 + `box-shadow:0 0 0 3px` 的柔和外环，贴合圆角；`.search-field` / `.chat-input` 内部的控件显式去掉外环，改由容器 `:focus-within` 高亮边框与外环。保留 `@media(forced-colors:active)` 下的实线 outline 作为高对比度模式兜底。`.search-field` / `.chat-input` 增加 0.2 秒的边框与阴影过渡，`motion-off` 下取消过渡。
+- 浏览器验证（`.test-data/focus-check.mjs`，CDP + 本机 Chromium，走 3101 测试库）：五个位置聚焦后计算样式均为 `outline-style:none`，容器环生效；修复后截图 `outputs/focus-life-search.png`、`focus-files-search.png`、`focus-login-password.png`、`focus-files-category.png`、`focus-chat-input.png`（同名文件已被修复后的版本覆盖，修复前是向上下右溢出胶囊的直角矩形）；`outputs/files-normal.png` 确认未聚焦时外观未变。
+- 样式改动只用真实浏览器验证，未添加镜像实现的样式单元测试，沿用此前对装饰性样式的处理方式。`npm run build` 退出 0；`npm test` 25/26（失败项仍是本轮之前就存在的 `backup.test.ts` 派生子进程环境问题）。3000 正式预览已用新构建重启并返回 200。
+
