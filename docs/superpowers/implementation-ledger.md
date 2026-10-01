@@ -88,3 +88,12 @@
 - 浏览器验证（`.test-data/focus-check.mjs`，CDP + 本机 Chromium，走 3101 测试库）：五个位置聚焦后计算样式均为 `outline-style:none`，容器环生效；修复后截图 `outputs/focus-life-search.png`、`focus-files-search.png`、`focus-login-password.png`、`focus-files-category.png`、`focus-chat-input.png`（同名文件已被修复后的版本覆盖，修复前是向上下右溢出胶囊的直角矩形）；`outputs/files-normal.png` 确认未聚焦时外观未变。
 - 样式改动只用真实浏览器验证，未添加镜像实现的样式单元测试，沿用此前对装饰性样式的处理方式。`npm run build` 退出 0；`npm test` 25/26（失败项仍是本轮之前就存在的 `backup.test.ts` 派生子进程环境问题）。3000 正式预览已用新构建重启并返回 200。
 
+## 后续修复：名牌 hover 的底部缝隙
+
+- 用户再次指出名牌 hover 时“下面还有缝隙”。本机 Chromium 复现并逐像素采样定位：名牌胶囊的填充（`.site-header::before` 磨砂层）与那圈高光边框（`.site-header::after`，实测 rect 与名牌盒子完全相同：top 28 / bottom 77 / left 44 / right 222）都在顶栏这一层，位置固定；而 `.brand:hover` 带着 `transform:translateY(-2px)`，着色跟着名牌一起上移，背景层留在原处。
+- 竖向采样（4 倍放大，逐 CSS 像素）证据：hover 时名牌盒子 y=2–47 是均匀的粉色染色，y=49–50 出现两行没有染色的浅色（`253,245,238` / `254,252,249`），y=51 才回到页面底色——就是那条缝。临时禁掉位移后，y=2–47 染色，y=48 是和高光边框一致的边线，缝消失。
+- 修法：名牌 hover 只保留配色变化，去掉 `translateY(-2px)`，`.brand` 的 transition 相应去掉 transform。导航和工具的高亮画在容器内部的按钮上，位移不会碰到外层胶囊边，浮起照旧，因此不动它们。CSS 里留了注释说明原因，避免以后又被加回来。
+- 顺带确认合并顶栏（滚动后）状态下同样存在这条缝：`.site-header::after` 在合并时变为整组的外框（24 / 80 / 44 / 1218），名牌位移后底边露出的就是条形底色的浅色带；去掉位移后染色在合并顶栏里垂直居中，不再挂边。
+- 复验：`outputs/brand-hover.png`（4 倍放大）上下边线对称、染色铺满；`brand-idle.png` 未聚焦外观未变；`brand-joined-hover.png` 合并状态正常。测量数值见该脚本输出，脚本为 `.test-data/brand-check.mjs`（真实鼠标事件 `Input.dispatchMouseEvent` 触发 `:hover`，`LW_BASE` 可指定端口）。
+- 只改样式，未动逻辑；`npm run build` 退出 0，`npm test` 25/26（同上环境项）。提交 `6dfce16`。
+
