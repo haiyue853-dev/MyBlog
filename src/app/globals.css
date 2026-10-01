@@ -29,4 +29,12 @@
 @media(max-width:850px){.site-header::after{border-radius:27px}}
 .motion-off .site-header::before,.motion-off .site-header::after,.motion-off .site-header :is(.main-nav,.header-tools)::before{transition:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.site-header::before{background:rgba(255,250,244,.94)}}
+/* 输入框聚焦：用贴合圆角的柔和外环，替换原来会画出方框的 outline */
+input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):focus-visible,textarea:focus-visible,select:focus-visible{outline:none;border-color:color-mix(in srgb,var(--space-accent) 55%,#fff);box-shadow:0 0 0 3px color-mix(in srgb,var(--space-accent) 20%,transparent)}
+/* 搜索框与聊天输入内部是无边框控件，聚焦时只高亮外层圆角容器 */
+.search-field input:focus-visible,.chat-input textarea:focus-visible{outline:none!important;box-shadow:none!important}
+.search-field,.chat-input{transition:border-color .2s,box-shadow .2s}
+.search-field:focus-within,.chat-input:focus-within{border-color:color-mix(in srgb,var(--space-accent) 45%,transparent);box-shadow:0 0 0 3px color-mix(in srgb,var(--space-accent) 16%,transparent)}
+.motion-off .search-field,.motion-off .chat-input{transition:none}
+@media(forced-colors:active){input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid}}
 .doc-status{display:inline-flex;align-items:center;gap:5px;justify-self:start;font-size:10px;line-height:1.7;color:#a28573;background:#f8eee5;border-radius:12px;padding:1px 8px;overflow-wrap:anywhere}.doc-status:before{content:'';height:5px;width:5px;border-radius:50%;background:#c4ae9e;flex-shrink:0}.doc-status.is-working{color:#b5738e;background:#f9e9e7}.doc-status.is-working:before{background:var(--space-accent);animation:status-pulse 1.4s ease-in-out infinite}.doc-status.is-ready{color:#7f8767;background:#f2f1e2}.doc-status.is-ready:before{background:#a5ad83}.doc-status.is-failed{color:#aa596b;background:#fff0eb}.doc-status.is-failed:before{background:#bb6675}@keyframes status-pulse{0%,100%{opacity:1}50%{opacity:.35}}.knowledge-document{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}.knowledge-document>a{flex:1;min-width:0;font-size:12px;color:#bc879a;overflow-wrap:anywhere}.knowledge-document>a:hover{text-decoration:underline}.motion-off .doc-status.is-working:before{animation:none}@media(prefers-reduced-motion:reduce){.personal-space:not(.motion-on) .doc-status.is-working:before{animation:none}}
