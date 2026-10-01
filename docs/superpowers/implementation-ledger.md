@@ -226,3 +226,33 @@
   - 动效关（`motion-off`）：同样全部 `0`，但都只用 **4 帧**停稳 —— 证实 `instant` 分支确实在起作用，两种模式行为不同。
   - 首屏「翻翻日常」：`scrollY = 626`、栏目 = 生活碎片（停在正文，不是 0）✓。
 - 顺带记一个观察到但**没改**的现象：「翻翻日常」落点 626 比「按切换后的布局重算」要大（切换后 `.site-main` 距文档顶 466，减 `scroll-margin-top:120` 应是 346）。原因是 `scrollIntoView()` 在同一个事件处理里、React 重渲染**之前**就被调用，平滑动画锁定的是「主页那套布局」的坐标（746 − 120 = 626，对得上）。这是改动前就存在的行为（`toTop` 在 scrollY=0 时是空操作），本次没动它。
+
+## 后续：收藏馆（照参考站的番剧墙改版）
+
+- 用户要求「像参考页面那样做个收藏馆收藏音乐动漫电视剧电影kpop小卡什么的等」。澄清后确定的四条：**升级现有收藏小屋**（不新开栏目）、**站主手动录入**（不做自动抓取）、**完全照参考站**、**只加「类型分类」一个字段**（状态 / 评分 / 短评链接都不要）。
+- 结构改动：
+  - 新增 `src/components/collection-wall.tsx`。卡片是「铺满的 `<button class="poster-open">` + 绝对定位的角标 / 工具条 / 信息条」——HTML 不允许 button 套 button，所以右侧那排操作按钮只能做成它的**兄弟节点**叠上去。
+  - `space.tsx` 里 `kind==='collection'` 走 `CollectionWall`，`moment` 仍走原来的 `.moments-list`；导航项与页面标题的「收藏小屋」统一改为「收藏馆」。
+  - 筛选从原来的「分类或标签」改成**只按分类**（海报墙角标显示的就是分类），按数量倒序、同数量按中文名排序，渲染成 `[全部 ✦12] 动漫3 音乐3 电视剧2 电影2 K-pop 小卡2` 这样的胶囊；生活碎片那条路径保持原样。
+  - 每页 9 张（`WALL_PER_PAGE`），上一页 / 下一页 + `1 / 2` 计数，只有一页时不渲染翻页条。
+  - `useEffect(()=>{setPage(1)},[view,tag,search])`：换栏目、换分类、改搜索词都会让结果集变短，不回第一页就会停在一个空页上。
+  - 排版照参考站：`aspect-ratio:2/3` 竖版海报铺满卡片、左上角分类角标、右上角操作按钮与底部信息条默认 `opacity:0`，hover 时一起浮出，卡片 `translateY(-6px)`、封面 `scale(1.06)`。
+  - `editor.tsx`：收藏的默认分类由「专辑」改为「音乐」，datalist 补到 12 项（生活 / 音乐 / 专辑 / 舞台 / 写真 / K-pop 小卡 / 动漫 / 电视剧 / 电影 / 综艺 / 游戏 / 其他），并在分类字段上加了一句「收藏馆里按它分组」。
+  - 清理死代码：旧的 `.collection-grid` / `.collection-card` / `.collection-cover` 已无任何引用，连同 `@media(max-width:640px)`、`@media(max-width:380px)`、`.motion-off`、`prefers-reduced-motion` 里的相关分支一并删除；构建后 CSS 由 46017 字节降到 44525，`.collection-grid|card|cover` 在产物里归零。
+- 验收数据：`.test-data/seed-collection.mjs` 自带一个极简 PNG 编码器（`zlib.deflateSync` + 手写 CRC32）生成 2:3 渐变海报，登录 3101 测试站主后写入 12 条（音乐 3 / 动漫 3 / 电视剧 2 / 电影 2 / K-pop 小卡 2，其中 2 条故意不带封面）。**脚本必须带 `Origin` 头**，否则同源校验返回 403。
+- 验收脚本 `.test-data/wall-check.mjs`，四个宽度全部通过：
+
+  | 宽度 | 列 | 卡片 | 比例 | 张数 | 溢出 | 翻页 | 默认隐藏 | hover | 触屏 |
+  |---|---|---|---|---|---|---|---|---|---|
+  | 1440 | 3 | 282×423 | 0.667 | 9 | 0 | 1 / 2 | true/true | 1/1 | 命中，9 张全常驻 |
+  | 900 | 3 | 193×290 | 0.667 | 9 | 0 | 1 / 2 | true/true | 1/1 | 命中，9 张全常驻 |
+  | 640 | 3 | 193×289 | 0.667 | 9 | 0 | 1 / 2 | true/true | 1/1 | 命中，9 张全常驻 |
+  | 380 | 2 | 166×248 | 0.667 | 9 | 0 | 1 / 2 | true/true | 1/1 | 命中，9 张全常驻 |
+
+  1440 下另外验了：标签计数与选中态、翻页 `1 / 2`（上一页禁用）、第二页 3 张（`OST` / `示例专辑：凌晨三点的电台` / `예시 앨범: 여름의 첫 곡`）、筛选「动漫3」得 3 张且翻页条自动隐藏、点开详情弹窗标题为 `示例小卡：特典` 且正文在。截图 `outputs/wall-<宽度>{,-heading,-filters,-hover,-touch}.png`。
+- **踩到并修掉一个「假通过」**，值得记住：触屏分支原来用 `Emulation.setEmulatedMedia({features:[{name:'hover',value:'none'}]})` 模拟，然后只读 `document.querySelector('.poster-veil')`（第一张卡）的 opacity。看到是 `1` 就判定 `@media(hover:none)` 生效了 —— 其实**这个 CDP 开关对 `hover` 完全无效**（`matchMedia('(hover: none)')` 仍返回 `false`），第一张显示 `1` 只是因为上一步的真实鼠标恰好停在它上面。
+  - 用新写的 `.test-data/media-query-matrix.mjs` 逐组试开关，结论：真正能改变 `hover` / `pointer` 判定的是 **`Emulation.setTouchEmulationEnabled({enabled:true,maxTouchPoints:5})`** —— 打开后 `hover:none`、`any-hover:none`、`pointer:coarse` 全为 `true`，`maxTouchPoints` 变 5，关掉后完全可逆（对照组回到桌面全部复位）。
+  - 新探针 `.test-data/touch-probe.mjs` 改成：开关打开 + **把鼠标挪出卡片** + 逐张读 opacity。改后 9 张全部 `veil=1 / tools=1` 且「悬停中的卡片数 = 0」，未模拟时全部为 `0`（证明读数确实没被鼠标污染）。
+  - `.test-data/wall-check.mjs` 同步修正，并加了「没有任何卡片处于 `:hover`」的断言；末尾加了一张人可读的汇总表，不用再自己解析那一大坨 JSON。
+  - 教训：**用媒体查询模拟做验收时，必须先断言 `matchMedia` 真的命中了**，否则规则根本没跑起来也会显示「通过」。
+- 提交：`feat: rebuild the collection as a poster wall`。同一轮里 `npm run typecheck` 退出 0，`npm run build` 退出 0（构建前照例先停掉占用 `.next/standalone` 的 3000 预览与 3101 测试服务），`npm test` 25/26（失败项仍是本轮之前就存在的 `backup.test.ts` 派生子进程环境问题）。构建完成后 3000 与 3101 均已重启并返回 200。
