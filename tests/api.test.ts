@@ -45,12 +45,15 @@ test('private file and metadata are protected until explicitly attached to a pub
   assert.equal((await request(`files/${asset.id}`,'DELETE',undefined,cookie)).status,200);
 });
 test('Iris proxy preserves local content events without exposing private endpoints',async()=>{
-  const upstream=createServer((req,res)=>{if(req.url==='/api/chat/stream'){res.setHeader('Content-Type','application/x-ndjson');res.end('{"type":"text_delta","data":{"content":"来自 Iris"}}\n');}else if(req.url?.endsWith('/source')){res.setHeader('Content-Type','text/html');res.end('<html>source</html>');}else {res.setHeader('Content-Type','application/json');res.end('{"status":"ok"}');}});
+  const upstream=createServer((req,res)=>{if(req.url==='/api/chat/stream'){res.setHeader('Content-Type','application/x-ndjson');res.end('{"type":"text_delta","data":{"content":"来自 Iris"}}\n');}else if(req.url?.endsWith('/source')){res.setHeader('Content-Type','text/html');if(req.url.includes('doc-named'))res.setHeader('Content-Disposition',`inline; filename="plan.pdf"; filename*=UTF-8''%E5%B9%B4%E5%BA%A6%E8%AE%A1%E5%88%92.pdf`);if(req.url.includes('doc-plain'))res.setHeader('Content-Disposition','attachment; filename="quarterly report.xlsx"');if(req.url.includes('doc-traversal'))res.setHeader('Content-Disposition','attachment; filename="../../etc/passwd"');res.end('<html>source</html>');}else {res.setHeader('Content-Type','application/json');res.end('{"status":"ok"}');}});
   await new Promise<void>(resolve=>upstream.listen(0,'127.0.0.1',resolve));const address=upstream.address() as {port:number};process.env.IRIS_BASE_URL=`http://127.0.0.1:${address.port}`;
   try{
     assert.equal((await request('iris/settings', 'GET',undefined,cookie)).status,404);
     const response=await request('iris/chat/stream','POST',{session_id:'session-test',message:'你好'},cookie);assert.equal(response.status,200);assert.ok((await response.text()).includes('来自 Iris'));
     const source=await request('iris/knowledge/doc-test/source','GET',undefined,cookie);assert.equal(source.headers.get('content-disposition'),'attachment; filename="iris-source"');assert.equal(source.headers.get('content-type'),'application/octet-stream');
+    const named=await request('iris/knowledge/doc-named/source','GET',undefined,cookie);assert.equal(named.status,200);assert.equal(named.headers.get('content-disposition'),`attachment; filename="____.pdf"; filename*=UTF-8''%E5%B9%B4%E5%BA%A6%E8%AE%A1%E5%88%92.pdf`);
+    const plain=await request('iris/knowledge/doc-plain/source','GET',undefined,cookie);assert.equal(plain.headers.get('content-disposition'),'attachment; filename="quarterly report.xlsx"');
+    const traversal=await request('iris/knowledge/doc-traversal/source','GET',undefined,cookie);assert.equal(traversal.headers.get('content-disposition'),'attachment; filename="passwd"');
   }finally{await new Promise<void>(resolve=>upstream.close(()=>resolve()));delete process.env.IRIS_BASE_URL;}
 });
 test('offline Iris returns a useful 503 while the private file cabinet still works',async()=>{

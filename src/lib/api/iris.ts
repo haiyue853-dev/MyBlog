@@ -2,7 +2,7 @@ import {readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 import {getStore} from '../store';
 import {ApiError,json,readJson,requireOrigin,requireOwner,validId} from '../http';
-import {allowedIrisPath} from '../iris-stream';
+import {allowedIrisPath,attachmentDisposition,sourceFileName} from '../iris-stream';
 
 export async function irisApi(request:Request,path:string[]){requireOwner(request);if(request.method!=='GET')requireOrigin(request);
   let endpoint=path.slice(1);let body:Record<string,unknown>|undefined;
@@ -26,5 +26,7 @@ export async function irisApi(request:Request,path:string[]){requireOwner(reques
   let response:Response;try{response=await fetch(target,{method:request.method,headers:upstreamHeaders,body:body?JSON.stringify(body):undefined,signal:AbortSignal.any([request.signal,AbortSignal.timeout(endpoint[0]==='health'?5000:180000)]),cache:'no-store',redirect:'error'});}catch{throw new ApiError(503,'暂时连接不上 Iris。资料柜仍可正常使用，请确认 Iris 服务已启动。');}
   if(!response.ok){const raw=await response.text();let message='Iris 暂时没有完成这次操作。';try{const parsed=JSON.parse(raw);message=typeof parsed.detail==='string'?parsed.detail:parsed.detail?.message||parsed.error?.message||message;}catch{}return json({error:message},response.status);}
   const source=endpoint[0]==='knowledge'&&endpoint[2]==='source';
-  return new Response(response.body,{status:response.status,headers:{'Content-Type':source?'application/octet-stream':response.headers.get('content-type')||'application/json','Cache-Control':'no-store','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff',...(source?{'Content-Disposition':'attachment; filename="iris-source"'}:{})}});
+  const headers:Record<string,string>={'Content-Type':source?'application/octet-stream':response.headers.get('content-type')||'application/json','Cache-Control':'no-store','X-Accel-Buffering':'no','X-Content-Type-Options':'nosniff'};
+  if(source)headers['Content-Disposition']=attachmentDisposition(sourceFileName(response.headers.get('content-disposition')));
+  return new Response(response.body,{status:response.status,headers});
 }
