@@ -37,7 +37,13 @@ export function ScrollHeader({children}:{children:ReactNode}){
     function scroll(){if(!frame)frame=requestAnimationFrame(sync);}
     measure();sync();window.addEventListener('scroll',scroll,{passive:true});
     const observer=new ResizeObserver(measure);for(const target of [element,brand,nav,tools])observer.observe(target);
-    return()=>{window.removeEventListener('scroll',scroll);cancelAnimationFrame(frame);observer.disconnect();};
+    // 首帧之后布局还可能再落位一次（字体、头像图、首屏图片），这时必须重新量：
+    // 否则 --header-* 会一直停在旧值，胶囊几何就和名牌自身的盒子对不上了。
+    let alive=true;let settle=requestAnimationFrame(()=>{settle=requestAnimationFrame(()=>{if(alive)measure();});});
+    function remeasure(){if(alive)measure();}
+    window.addEventListener('load',remeasure);
+    if(document.fonts&&document.fonts.ready)void document.fonts.ready.then(remeasure).catch(()=>{});
+    return()=>{alive=false;window.removeEventListener('scroll',scroll);window.removeEventListener('load',remeasure);cancelAnimationFrame(frame);cancelAnimationFrame(settle);observer.disconnect();};
   },[]);
   return <header ref={header} className={`site-header ${joined?'is-joined':''}`} data-joined={joined}>{children}</header>;
 }

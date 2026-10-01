@@ -23,7 +23,7 @@
 .site-header :is(.brand,.main-nav,.header-tools){position:relative;isolation:isolate;z-index:1;background:transparent;border-color:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
 .site-header::before{content:'';position:absolute;inset:0;z-index:-1;background:rgba(255,250,244,.64);-webkit-backdrop-filter:blur(30px) saturate(150%);backdrop-filter:blur(30px) saturate(150%);clip-path:var(--header-clip-open,inset(0 100% 0 0));pointer-events:none;transition:clip-path .6s cubic-bezier(.22,.68,.18,1)}
 .site-header.is-joined::before{clip-path:var(--header-clip-joined)}
-.site-header::after{content:'';position:absolute;inset:var(--header-top-open,24px) var(--header-right-open,44px) var(--header-bottom-open,24px) var(--header-left,44px);z-index:-1;border:1px solid #ffffffa3;border-radius:34px;box-shadow:0 6px 24px #82635312,inset 0 1px 0 #ffffff8c;pointer-events:none;transition:inset .6s cubic-bezier(.22,.68,.18,1)}
+.site-header::after{content:'';position:absolute;inset:var(--header-top-open,24px) var(--header-right-open,44px) var(--header-bottom-open,24px) var(--header-left,44px);z-index:-1;border:1px solid #ffffffa3;border-radius:34px;box-shadow:0 6px 24px #82635312,inset 0 1px 0 #ffffff8c;pointer-events:none;transition:inset .6s cubic-bezier(.22,.68,.18,1),background .25s ease}
 .site-header.is-joined::after{top:var(--header-top-joined);right:var(--header-right-joined);bottom:var(--header-bottom-joined)}
 .site-header :is(.main-nav,.header-tools)::before{content:'';position:absolute;inset:-1px;z-index:-1;border:1px solid #ffffffa3;border-radius:inherit;box-shadow:0 5px 20px #82635310,inset 0 1px 0 #ffffff8c;pointer-events:none;transition:border-color .6s,box-shadow .6s}
 .site-header.is-joined :is(.main-nav,.header-tools)::before{border-color:transparent;box-shadow:none}
@@ -31,6 +31,14 @@
    再让它上移就会把着色带离胶囊边，底部露出一条没被染色的缝；所以名牌只改配色，不做位移。
    导航和工具是容器内的小胶囊，位移不会碰到外层边，浮起照旧。 */
 .site-header .brand:hover{background:color-mix(in srgb,var(--space-accent) 10%,transparent)}
+/* 底色改由描边层自己画：展开态下 ::after 的盒子就是名牌盒子，底色和描边同属一个元素，
+   就不会因为「JS 测得的路径」与「元素自身盒子」在小数像素下取整不同，而在底部露出玻璃层的亮缝。
+   合并态下 ::after 已变成包住整条顶栏的外框，这时回退到名牌自身背景。 */
+@supports selector(:has(*)){
+  .site-header .brand:hover{background:transparent}
+  .site-header:not(.is-joined):has(.brand:hover)::after{background:color-mix(in srgb,var(--space-accent) 10%,transparent)}
+  .site-header.is-joined .brand:hover{background:color-mix(in srgb,var(--space-accent) 10%,transparent)}
+}
 @media(max-width:850px){.site-header::after{border-radius:27px}}
 .motion-off .site-header::before,.motion-off .site-header::after,.motion-off .site-header :is(.main-nav,.header-tools)::before{transition:none}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.site-header::before{background:rgba(255,250,244,.94)}}

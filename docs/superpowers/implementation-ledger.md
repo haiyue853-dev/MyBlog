@@ -153,3 +153,18 @@
   - 截图 `outputs/header-{before,after}-1440.png`（含滚动后的合并胶囊态）、`-640.png`、`-380.png`；对比页 `outputs/header-compare.html`（整条顶栏 1:1 + 名牌/导航/工具区 2× 放大 + 小屏，改前改后并排）。
 - 只改排版尺寸，未动接口、数据与交互逻辑；`npm run typecheck` 退出 0，`npm run build` 通过。
 
+
+## 后续：名牌 hover 底部的亮缝
+
+- 用户反馈「这个 hover 特效还是下面有空隙」并给了截图（320×95）。上一轮 `a49473f` 只是去掉了名牌 hover 的位移，缝还在。
+- 先把截图交给像素探针（`.test-data/png-inspect.mjs`，Node 无内置 PNG 解码，所以把图片塞进浏览器用 canvas 读 `getImageData`）。沿胶囊中心列逐行读色，得到：顶部亮带 2 设备像素（`::after` 的 `inset 0 1px 0` 高光，符合设计），**底部亮带 8 设备像素**——明显不对称。
+- 亮带的成分也算了：`0.64×(255,250,244) + 0.36×(252,245,235) ≈ (254,248,241)`，与实测的 `255,249,240` 吻合，**说明那条带是玻璃层 `.site-header::before` 露出来的**，即粉色填充没有盖到胶囊底部。
+- 根因：粉色填充画在 `.brand` 自己的 `background` 上，用的是**元素实时盒子**；而玻璃层的 `clip-path` 和描边层 `::after` 的 `inset` 都来自 `scroll-header.tsx` 里 `measure()` 写下的 `--header-*`，用的是**测量快照**。两者在小数像素下取整不同，底部就会露出一条没被染色的缝。headless 在 DPR 1 / 1.25 / 1.5 / 2 四档都只量到 1~3 像素的对称亮带（复现不出用户的 8 像素），但机制是确凿的。
+- 修法两层：
+  - **让填充和描边变成同一个元素**。展开态下 `::after` 的盒子本来就等于名牌盒子，于是把 hover 底色交给它：
+    `.site-header:not(.is-joined):has(.brand:hover)::after{background:color-mix(in srgb,var(--space-accent) 10%,transparent)}`，
+    同时 `.site-header .brand:hover{background:transparent}`。合并态下 `::after` 已变成包住整条顶栏的外框，回退到名牌自身背景。整段包在 `@supports selector(:has(*))` 里，不支持 `:has()` 时保留原写法。给 `::after` 的 transition 补上 `background .25s ease`。
+  - **补掉测量快照过期**：`measure()` 原本只在挂载时跑一次（外加 `ResizeObserver`）。加上首帧后两帧的重测、`window load` 重测、`document.fonts.ready` 重测，并用 `alive` 标志防止卸载后回调仍执行。
+- 验收（`.test-data/brand-hover-dpr.mjs`，DPR 1 / 1.25 / 1.5 / 2 各跑一次）：hover 时确认 `brand=rgba(0,0,0,0)`、`::after=...0.1)`、`:has支持=true`；**底部亮带降到 1~2 设备像素**（DPR 1.25 下底部 1px、顶部 3px，不再比顶部厚）。下缘色带采样显示是「填充 → 1~2 行抗锯齿过渡 → 阴影」，不再是整片玻璃。
+- 截图：`outputs/brand-hover-diagnose.png`（修复前）、`brand-hover-after.png`（修复后）、`brand-hover-joined.png`（合并态），对比页 `outputs/brand-hover-compare.html`。
+- 顺带又踩了一次同一个坑：`Page.captureScreenshot` 的 clip 用文档坐标，顶栏是 `position:sticky`，滚动后必须把 `window.scrollY` 加进 clip 的 y，否则截回空白。
