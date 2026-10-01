@@ -18,6 +18,7 @@ async function request(path:string,method='GET',body?:unknown,cookie='',origin:s
 let cookie='';
 test('API requires login for private operations',async()=>{
   assert.equal((await request('files')).status,401);
+  assert.equal((await request('files','POST',new FormData())).status,401);
   assert.equal((await request('items','POST',{title:'secret'})).status,401);
   assert.equal((await request('iris/health')).status,401);
 });
@@ -51,5 +52,12 @@ test('Iris proxy preserves local content events without exposing private endpoin
     const response=await request('iris/chat/stream','POST',{session_id:'session-test',message:'你好'},cookie);assert.equal(response.status,200);assert.ok((await response.text()).includes('来自 Iris'));
     const source=await request('iris/knowledge/doc-test/source','GET',undefined,cookie);assert.equal(source.headers.get('content-disposition'),'attachment; filename="iris-source"');assert.equal(source.headers.get('content-type'),'application/octet-stream');
   }finally{await new Promise<void>(resolve=>upstream.close(()=>resolve()));delete process.env.IRIS_BASE_URL;}
+});
+test('offline Iris returns a useful 503 while the private file cabinet still works',async()=>{
+  const unavailable=createServer();await new Promise<void>(resolve=>unavailable.listen(0,'127.0.0.1',resolve));
+  const port=(unavailable.address() as {port:number}).port;await new Promise<void>(resolve=>unavailable.close(()=>resolve()));
+  process.env.IRIS_BASE_URL=`http://127.0.0.1:${port}`;
+  try{const response=await request('iris/health','GET',undefined,cookie);assert.equal(response.status,503);assert.match((await response.json()).error,/资料柜仍可正常使用/);assert.equal((await request('files','GET',undefined,cookie)).status,200);}
+  finally{delete process.env.IRIS_BASE_URL;}
 });
 test('logout invalidates the stored session',async()=>{assert.equal((await request('auth/logout','POST',undefined,cookie)).status,200);assert.equal((await request('files','GET',undefined,cookie)).status,401);});

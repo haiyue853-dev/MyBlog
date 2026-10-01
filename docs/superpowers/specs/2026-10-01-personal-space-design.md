@@ -16,7 +16,7 @@
 
 ## 云部署
 
-Next.js 自托管，Docker Compose 与 Caddy HTTPS；数据库和附件使用持久化目录。单实例运行 SQLite，Node >=22.13。提供原子 SQLite 备份与附件备份命令、恢复说明。发布到云端需要服务器、域名等信息，本次交付本地可运行项目与部署文件。
+Next.js 自托管，Docker Compose 与 Caddy HTTPS；数据库和附件使用持久化目录。单实例运行 SQLite，Node >=22.16。提供一致的 SQLite 备份与附件备份命令、恢复说明。发布到云端需要服务器、域名等信息，本次交付本地可运行项目与部署文件。
 
 ## 验收
 

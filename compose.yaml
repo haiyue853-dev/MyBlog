@@ -8,7 +8,7 @@ services:
       IRIS_API_TOKEN: ${IRIS_API_TOKEN:-}
       DATA_DIR: /app/data
     volumes:
-      - ./data:/app/data
+      - ${HOST_DATA_DIR:-./data}:/app/data
     extra_hosts:
       - host.docker.internal:host-gateway
     expose:
