@@ -41,3 +41,12 @@ input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):
 .motion-off .search-field,.motion-off .chat-input{transition:none}
 @media(forced-colors:active){input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid}}
 .doc-status{display:inline-flex;align-items:center;gap:5px;justify-self:start;font-size:10px;line-height:1.7;color:#a28573;background:#f8eee5;border-radius:12px;padding:1px 8px;overflow-wrap:anywhere}.doc-status:before{content:'';height:5px;width:5px;border-radius:50%;background:#c4ae9e;flex-shrink:0}.doc-status.is-working{color:#b5738e;background:#f9e9e7}.doc-status.is-working:before{background:var(--space-accent);animation:status-pulse 1.4s ease-in-out infinite}.doc-status.is-ready{color:#7f8767;background:#f2f1e2}.doc-status.is-ready:before{background:#a5ad83}.doc-status.is-failed{color:#aa596b;background:#fff0eb}.doc-status.is-failed:before{background:#bb6675}@keyframes status-pulse{0%,100%{opacity:1}50%{opacity:.35}}.knowledge-document{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap}.knowledge-document>a{flex:1;min-width:0;font-size:12px;color:#bc879a;overflow-wrap:anywhere}.knowledge-document>a:hover{text-decoration:underline}.motion-off .doc-status.is-working:before{animation:none}@media(prefers-reduced-motion:reduce){.personal-space:not(.motion-on) .doc-status.is-working:before{animation:none}}
+/* 文案切换：重新挂载的文本做一次淡入上浮，避免「已连接→连接中→已连接」这类跳变 */
+@keyframes label-swap{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.label-swap{display:inline-block;min-width:0;animation:label-swap .26s cubic-bezier(.2,.7,.2,1) both}
+.status-chip{transition:transform .18s ease,background .25s ease,color .25s ease}
+.status-chip:active:not(:disabled){transform:scale(.96)}
+.status-chip .spin{color:var(--space-accent)}
+.motion-off .label-swap{animation:none}
+.motion-off .status-chip,.motion-off .status-chip:active:not(:disabled){transition:none;transform:none}
+@media(prefers-reduced-motion:reduce){.personal-space:not(.motion-on) .label-swap{animation:none}.personal-space:not(.motion-on) .status-chip,.personal-space:not(.motion-on) .status-chip:active:not(:disabled){transition:none;transform:none}}
