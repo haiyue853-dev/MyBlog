@@ -112,3 +112,24 @@
 - 截图 `outputs/label-swap-saying.png`、`label-swap-chip.png`、`label-swap-status.png`（截图为动画结束后的稳定态，动效本身以上面的采样数据为准）。`npm run typecheck` 退出 0，`npm test` 25/26（失败项仍是 `backup.test.ts` 的本机派生子进程问题）。提交 `73e7188`。
 - 复验提醒：3101 测试服务占用 `.next/standalone`，改代码后必须先停它再 `npm run build`，否则报 `EBUSY: rmdir`。
 
+## 后续：顶部阅读进度条与回到顶部按钮
+
+- 用户给出了参考站 `yaronluo.com`（Fuwari 主题的博客），要它的 TOP 按钮和顶部进度条。此前那张「TOP」截图在项目源码与渲染结果里都找不到出处，现在对上了：它属于参考站，不是本项目已有的东西。
+- 参考实现是 Fuwari 的 `src/components/control/BackToTop.astro`（GitHub `saicaca/fuwari`）。要点：外层 div 只负责定位（祖先不能有 filter，否则 `fixed` 会失效），按钮本身 `position:fixed;bottom:10rem`，默认带 `.hide`（`transform:translateX(5rem)` + `opacity:0` + `pointer-events:none`），移除该 class 即从左滑入；`:active` 时 `scale(.9)`；点击 `window.scroll({top:0,behavior:'smooth'})`；只在 `lg` 以上显示。
+- 本项目实现为 `src/components/scroll-tools.tsx`，一个组件同时管进度条和按钮，共用一次滚动监听：
+  - 进度条 `.reading-progress`：`position:fixed;left:0;top:0;height:3px;width:100%`，`background:var(--space-accent)`，右端圆角；`transform:scaleX(ratio)` + `transform-origin:left center`；`opacity` 由 `data-active` 控制（比例≈0 时整条不显示）。只过渡 opacity，transform 直接跟随滚动、不做过渡，否则会拖尾。
+  - 按钮 `.back-to-top`：`position:fixed;right:26px;bottom:30px`，52px 宽的圆角卡片，粉色 ↑ 与放大字距的 TOP，右上角一个 ✦ 星点（`top-star-twinkle` 缓慢明暗闪动）。默认 `opacity:0;visibility:hidden;translateY(12px) scale(.94)`，滚过阈值后加 `.is-visible`；用 `visibility` 而不是只靠 opacity，隐藏时不会被 Tab 聚焦（已实测）。
+  - **跟随正在阅读的内容**：`readingSurface()` 优先取 `dialog[open]` 且可滚动者（本项目长文是在弹窗里读的），否则用整页；进度比例和「回到顶部」的目标取自同一个来源，所以打开长文时进度条跟着文章走、按钮把文章滚回开头。
+  - 出现阈值：整页 520px、弹窗 180px。
+  - 滚动监听用 `document.addEventListener('scroll',fn,{capture:true,passive:true})`——scroll 事件不冒泡，只有捕获阶段才能同时收到整页和弹窗内部的滚动。另加 `ResizeObserver(body)` 与 `MutationObserver(body)`，覆盖切换栏目、打开弹窗、图片撑高导致的内容高度变化。
+  - 关闭动效：复用项目已有的 `.motion-off *{animation:none!important;transition:none!important}`，星点与过渡自动停止；回顶的 `behavior` 跟着 `motion` 开关走（`smooth` / `instant`）。
+- 验收（`.test-data/scroll-tools-check.mjs`，CDP + 本机 Chromium，走 3101 测试库）：先用 API 造一篇长文（`POST /api/items`）以便页面真能滚。
+  - 顶部：`scaleX(0)`、`opacity 0`、按钮 `hidden`。
+  - 滚到 838 / 1675：`scaleX(0.5003)`（期望 0.5）、`data-active=true`、按钮 `is-visible`。
+  - 滚到底：`scaleX(1)`。
+  - 点击按钮：`scrollY` 归 0，按钮回到 `hidden`；此时 `focus()` 拿不到焦点。
+  - 弹窗长文：撑高后 `dialogMax=4393`，滚到 2636（0.6）时进度条 `scaleX(0.6000)`、`source=dialog`，而整页 `scrollY` 仍是 0；点击按钮后文章 `scrollTop=0`。
+  - 截图 `outputs/scroll-mid.png`（进度条与按钮同屏）、`scroll-bar.png`（顶部放大 5 倍，粉色条右端圆角正好停在 50% 处）、`scroll-button.png`（按钮放大 4 倍）、`scroll-article.png`、`scroll-top.png`、`scroll-back-to-top.png`。
+- 又踩了一次的坑：`Page.captureScreenshot` 的 clip 用文档坐标，`position:fixed` 元素必须加 `window.scrollY` 才能截到，第一版截回来是空白。
+- 只加前端表现，未动接口与数据；`npm run typecheck` 退出 0，`npm test` 25/26（失败项仍是 `backup.test.ts` 的本机派生子进程问题）。提交 `c11f4bf`。
+
