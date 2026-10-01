@@ -10,6 +10,10 @@ export interface Profile {name:string;bio:string;subtitle:string;avatarId:string
 export interface IrisEvent {type:string;data:Record<string,unknown>;}
 export const DEFAULT_PROFILE:Profile={name:"Hai's Little World",bio:'收集喜欢的音乐，记录平凡但可爱的日常。',subtitle:'音乐、日常，以及属于我的小小世界。',avatarId:null,accent:'#d27b98'};
 export const CARD_RATIOS:CardRatio[]=['auto','portrait','landscape','square'];
+// 站主密码的下限。放在这里是为了让三处校验共用同一个数字：服务端 `auth/setup`、
+// 终端里的 `npm run setup-owner`、以及前端建站表单的本地预校验。
+// 前端不能从 security.ts 取值（那边依赖 node:crypto），所以只能放在这个纯模块里。
+export const MIN_PASSWORD_LENGTH=8;
 // 三个手动档位的宽高比；'auto' 走原图，不在这里。
 const FIXED_RATIOS:Record<'portrait'|'landscape'|'square',number>={portrait:2/3,landscape:3/2,square:1};
 // 自动档的上下限：极端长图（全景、手机长截图）会把瀑布流里那一列拉成一根面条，

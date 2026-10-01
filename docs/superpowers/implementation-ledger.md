@@ -313,3 +313,36 @@
     截图 `outputs/setup-form.png`、`outputs/setup-form-mismatch.png`、`outputs/setup-login-after.png`、`outputs/setup-after-publish.png`。服务端日志里也确认打出了 `[setup] 站主账号已创建（验收站主）…`。
   - 新增 `tests/setup.test.ts`（6 条）把服务端分支锁进回归：单独一个文件、单独一个空 `DATA_DIR`（node 的测试运行器会给每个测试文件开独立进程，所以 store 是干净的；`api.test.ts` 在模块加载时就把站主建好了，那边只剩「已经建过」这条路）。最后一条验「昵称留空」时直接用 `store.db` 删掉 `owner` 行把自己退回原始状态 —— 是测试专用后门，业务代码里没有删站主这条路。
   - 整机 `npm test` **38 项 37 通过**（失败项仍是那个预存在的 `backup.test.ts` 派生子进程环境问题），`npm run typecheck` 退出 0。
+
+## 后续：滚动条与圆角弹窗
+
+- 起因：用户贴了一张登录弹窗右边缘的截图 ——「滚动条像是凸出来多加的违和感好严重」。随后澄清是**登录菜单**里的，四角都是圆角，而滚动条是一条直上直下的竖条，「还是超出了圆角」。
+- 先如实记下**根因是两条**，不是一条：
+  1. **Windows 经典滚动条**：槽是 `#fafafa` 一类的白色，比页面底色 `#fff9ef` 还白，看着像从右边凸出来一条；滚头是 `#8a8a8a` 的冷灰粗圆头；两端还有三角箭头。整站只有收藏馆的分类标签自己关掉了滚动条，其余（整页、弹窗、Iris 侧栏、聊天记录）全是默认样式。
+  2. **滚动条不认圆角**：滚动条会从滚动容器的顶边一直画到底边。弹窗 `border-radius:25px`，滚动条必然横穿两个角。
+- 改版一（整站）：`::-webkit-scrollbar{width:12px}`、槽与角落全透明、`::-webkit-scrollbar-button{display:none}` 去掉箭头、滚头用 `border:3px solid transparent` + `background-clip:content-box` 从 12px 槽缩成 6px 的暖调药丸（静止 `#c9a3a6`、悬停 `#b58c90`、按下 `#a67a81`）。顺手把 `.chat-messages` 上原有的 `scrollbar-width:thin;scrollbar-color:#ead0d6` 删掉，跟整站统一。
+  - **两个真踩到的坑**：
+    - **颜色必须用 `background-color` 而不是 `background` 简写**。简写会把 `background-clip` 重置回 `border-box`，6px 的药丸会被撑成 12px 的满宽条 —— 这个是靠「并排渲染 6 个候选色、逐像素对比」时才暴露出来的，肉眼看图完全没发现。
+    - **Chrome 121+ 的互斥规则**：`scrollbar-width` / `scrollbar-color` 一旦不是 `auto`，Chrome 会整套忽略 `::-webkit-scrollbar`。所以标准属性必须包在 `@supports not selector(::-webkit-scrollbar)` 里只给 Firefox。验收脚本里加了硬断言：Chrome 下 `CSS.supports('selector(::-webkit-scrollbar)')` 必须为 `true`、`not` 之后为 `false`，且 `getComputedStyle(html).scrollbarWidth` 必须是 `auto` —— 否则等于改了个寂寞。
+  - 顺带查明一件事：**`--hide-scrollbars` 会让无头 Chromium 的 gutter 恒为 0**，之前所有验收脚本都带了这个参数，所以从来没量到过滚动条。去掉之后能正常渲染 15px 的经典滚动条，`::-webkit-scrollbar{width:23px}` 也能立刻把 gutter 变成 23 来验证规则生效。
+  - 页面自己的滚动条**不在 CDP 截图范围内**（拍了右边缘 26px 整条，是空白）。所以视觉验证改成在页面里注入一个可滚动方块 —— 全局规则同样作用于它，且它**在**截图范围内。
+- 改版二（圆角弹窗）：先量了一遍溢出现状（`.test-data/modal-fit-check.mjs`，六个视口高度）—— **视口高 ≥800 时建站弹窗根本不溢出**，760 才溢 20px、700 溢 71px、640 溢 122px。用户看到滚动条，说明他的可视高度大概在 760 上下（1080p + Windows 125% 缩放正好是这个数）。
+- 结构上试过六种搭法（`.test-data/modal-corner-experiment.mjs`，逐像素判定而不是肉眼看图），结论：
+  - **只给外壳加 `overflow:hidden` 而不留边距不够** —— 滚头从 y=11 就开始出现，还扎在 25px 的顶角弧线里。
+  - 正确解法是**边距**：外壳 `padding:0 14px 24px 0` 把滚动条推进一块「安全矩形」——上方约 75px（标题栏）、下方 24px、右侧 15~27px，全部躲开 25px 的圆角弧线。
+- 最终实现：
+  - `Modal` 拆成两层：`<dialog class="modal">` 只管圆角 / 底色 / 阴影 + `overflow:hidden`，里面是固定的 `.modal-header` 和一个 `.modal-scroll`。**顺带把标题栏变成固定的**：长内容滚动时关闭按钮不再跟着滚走，这在收藏详情这种长文章上本来就是个真问题。
+  - 窄弹窗（登录 / 建站、删除确认）内容就那么几行，干脆不显示滚动条（`scrollbar-width:none` + `::-webkit-scrollbar{width:0;display:none}`），`max-height` 也从 `85svh` 放宽到 `calc(100svh - 40px)`，只要窗口放得下就永远不出现滚动条。宽的（编辑器、收藏详情）内容可能很长，保留 `85svh` 上限和可见的滚动条。
+  - 用户要求删掉建站表单底部那行「…可以在终端跑 `npm run setup-owner`」的提示；`.hint` 样式在编辑器 / 资料柜 / 布置小屋还在用，保留。
+- 验收：
+  - `.test-data/modal-fit-check.mjs`：改动前 `760/700/640` 三个高度溢出 20/71/122px、滚动条 14px；改动后 **六个高度（1000/900/800/760/700/640）全部溢出 0、滚动条 0px、提交按钮完整可见**，末尾文案不再出现 `setup-owner`。
+  - `.test-data/modal-corner-check.mjs`（3101 测试站，登录后开编辑器）：把截图塞回浏览器用 canvas 解码，找出所有滚头色像素，再用圆角矩形公式判定有没有落在弧线之外 —— **滚到顶和滚到底都是「落在圆角外 0 像素」**；滚动区 12px 滚动条、内容 878 / 可见 658；滚到底后标题距弹窗顶仍是 28px（标题栏固定成立）。
+  - `.test-data/setup-check.mjs`（全新空库 + 3102）复跑：八项全过，其中新增「弹窗有没有滚动条 → 没有（0px，内容 465 / 可见 465）」「登录弹窗有没有滚动条 → 没有」「底部 `setup-owner` 提示 → 已删掉」。
+  - `.test-data/editor-ratio-check.mjs` 回归：四条用例仍全对（结构改动没带坏编辑器）。
+  - `.test-data/page-shot.mjs`（新建的通用整页截图）确认首页无回归。
+
+## 后续：密码下限从 12 位改为 8 位
+
+- 用户要求「密码8位就行了」。
+- 新增 `MIN_PASSWORD_LENGTH = 8`（放在 `src/lib/types.ts`）作为**唯一出处**，三处校验共用：服务端 `auth/setup`、终端 `npm run setup-owner`、前端建站表单的本地预校验与字段提示。放 `types.ts` 而不是 `security.ts`，是因为前端不能引用 `security.ts`（那边依赖 `node:crypto`），而这个文件本来就是纯模块（`CARD_RATIOS` / `cardAspect` 也在里面）。
+- `tests/setup.test.ts` 里把原来写死的 `'elevenchars'` 换成 `'x'.repeat(MIN_PASSWORD_LENGTH-1)`，并在最后一条加上**边界断言**：差一位 → 400，刚好够长 → 201（借那条测试已有的「删掉 owner 行退回原始状态」的后门来测第二次建站）。

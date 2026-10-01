@@ -8,6 +8,7 @@ import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {getStore} from '../src/lib/store';
+import {MIN_PASSWORD_LENGTH} from '../src/lib/types';
 import {GET as handler} from '../src/app/api/[...path]/route';
 
 const directory=mkdtempSync(join(tmpdir(),'world-setup-'));process.env.DATA_DIR=directory;process.env.APP_URL='http://localhost:3000';
@@ -27,7 +28,7 @@ test('a fresh install reports itself as unconfigured',async()=>{
 
 test('setup refuses cross-origin, short and oversized passwords without creating an owner',async()=>{
   assert.equal((await request('auth/setup','POST',{password:PASSWORD},'','http://bad.example')).status,403);
-  assert.equal((await request('auth/setup','POST',{password:'elevenchars'})).status,400);
+  assert.equal((await request('auth/setup','POST',{password:'x'.repeat(MIN_PASSWORD_LENGTH-1)})).status,400);
   assert.equal((await request('auth/setup','POST',{password:'x'.repeat(257)})).status,400);
   assert.equal(store.getOwner(),null,'被拒绝的请求不该留下站主账号');
 });
@@ -60,12 +61,13 @@ test('the password just set is the one login accepts',async()=>{
   assert.ok(store.hasSession(cookie.slice('world-session='.length)));
 });
 
-test('a blank name falls back to 小屋站主',async()=>{
+test('a blank name falls back to 小屋站主, and the length limit is exact',async()=>{
   // 只有一次建站机会，想再验一遍「留空昵称」就得先把库退回原始状态。
   // 这里直接用 store.db 抹掉 owner 行 —— 是测试专用后门，业务代码里没有删站主这条路。
   store.db.exec('DELETE FROM owner');
   assert.equal(store.getOwner(),null);
-  const response=await request('auth/setup','POST',{name:'   ',password:PASSWORD});
-  assert.equal(response.status,201);
-  assert.equal(store.getOwner()?.name,'小屋站主');
+  assert.equal((await request('auth/setup','POST',{name:'',password:'x'.repeat(MIN_PASSWORD_LENGTH-1)})).status,400,'差一位就该被挡下');
+  const response=await request('auth/setup','POST',{name:'   ',password:'x'.repeat(MIN_PASSWORD_LENGTH)});
+  assert.equal(response.status,201,'刚好够长就该通过');
+  assert.equal(store.getOwner()?.name,'小屋站主','名字留空落回默认昵称');
 });

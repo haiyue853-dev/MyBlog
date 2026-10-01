@@ -1,5 +1,6 @@
 import {getStore} from '../store';
 import {hashPassword,verifyPassword} from '../security';
+import {MIN_PASSWORD_LENGTH} from '../types';
 import {ApiError,isOwner,json,newToken,readJson,requireOrigin,sessionCookie,tokenFrom} from '../http';
 
 export async function authApi(request:Request,path:string[]){const store=getStore();
@@ -13,7 +14,7 @@ export async function authApi(request:Request,path:string[]){const store=getStor
     if(store.getOwner())throw new ApiError(409,'站主账号已经存在，无法重复初始化。');
     const data=await readJson(request);
     const password=typeof data.password==='string'?data.password:'';
-    if(password.length<12)throw new ApiError(400,'密码至少需要 12 位。');
+    if(password.length<MIN_PASSWORD_LENGTH)throw new ApiError(400,`密码至少需要 ${MIN_PASSWORD_LENGTH} 位。`);
     if(password.length>256)throw new ApiError(400,'密码长度不正确。');
     const name=(typeof data.name==='string'?data.name.trim():'').slice(0,50)||'小屋站主';
     store.setOwner(name,hashPassword(password));
