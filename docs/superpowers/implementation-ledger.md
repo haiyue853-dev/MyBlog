@@ -210,3 +210,19 @@
 - 又踩了一次 `.cursor-notes`：鼠标移动会沿路撒光标星屑（`.cursor-note`，1.25s 动画）。第一版脚本 hover 后只等 900ms 就截图，在 DPR 1.5 / 900px 上量到 1617 像素差（maxΔ 12），一看就是星屑没落干净；把等待拉到 2200ms 并确认 `document.querySelectorAll('.cursor-note').length === 0` 之后就是 0。**凡是用「两张截图逐像素对比」做验收的脚本，都要先让星屑收干净，否则会把随机装饰当成样式变化。**
 - 截图：`outputs/brand-nohover-<宽度>-dpr<DPR>-{before,hover}.png`；报告 `outputs/…` 同目录外另有 `.test-data/brand-nohover-dpr1.json` 与 `.test-data/brand-nohover-dpr1.5.json`。
 - 遗留：`docs/项目状态总结.md` 按用户要求不自动更新，如果里面写了旧站名，等用户下指令时再一起改。三条死掉的 `box-shadow`（见上一节）仍未清理。
+
+## 后续：切栏目一律回到页面顶部
+
+- 用户问「每次头部点击新菜单都应该跳转到最上面才对吧」。原来 `go()` 只做 `setView` + `history.pushState`，**完全没碰滚动位置**；顶栏是 sticky 的、在页面很下面也一直点得到，于是点导航后新栏目直接从半截开始显示。
+- 改法：抽出 `toTop()`，在三个「用户主动换栏目」的路径上调用：
+  - `go()` 末尾 —— 一次覆盖导航五个按钮、点名牌回主页、侧栏书架三个入口、侧栏标签切到生活碎片、顶栏「布置小屋」、首屏「看看收藏」。
+  - 登录成功后（`setView(pendingView)`）。
+  - 退出登录后（`setView('home')`）。
+  - 位移方式 `motion?'smooth':'instant'`，与页脚「回到小屋顶端」、浮动 TOP 按钮、首屏 scroll-hint 完全一致，也照样能被 `.motion-off` / `prefers-reduced-motion` 关掉。
+  - `popstate`（浏览器前进后退）刻意不动：那是浏览器自己的导航，不该抢走滚动位置。
+- 确认没有误伤首屏「翻翻日常」：它是 `go('life')` + `content.scrollIntoView()` 连发两个滚动请求，后发的 `scrollIntoView` 决定最终落点，所以仍然停在正文顶部而不是被 `toTop` 拉回 0。
+- 验收（新增 `.test-data/nav-scroll-check.mjs`）：真实鼠标按下/松开，等滚动停稳（连续三次读数不变）后再读 `window.scrollY`。跑 **3101 + `.test-data/browser`** 那套测试数据（6 条内容 + 测试站主账号），不碰 `data/` 里的真实数据。动效开 / 关各跑一遍：
+  - 动效开（`motion-on`）：导航「生活碎片 / 收藏小屋 / 主页」、点名牌回主页、登录进资料柜、退出登录回主页 —— **全部 `scrollY = 0`**，且 `aria-current` 的栏目名正确。平滑滚动要 9~11 帧才停稳。
+  - 动效关（`motion-off`）：同样全部 `0`，但都只用 **4 帧**停稳 —— 证实 `instant` 分支确实在起作用，两种模式行为不同。
+  - 首屏「翻翻日常」：`scrollY = 626`、栏目 = 生活碎片（停在正文，不是 0）✓。
+- 顺带记一个观察到但**没改**的现象：「翻翻日常」落点 626 比「按切换后的布局重算」要大（切换后 `.site-main` 距文档顶 466，减 `scroll-margin-top:120` 应是 346）。原因是 `scrollIntoView()` 在同一个事件处理里、React 重渲染**之前**就被调用，平滑动画锁定的是「主页那套布局」的坐标（746 − 120 = 626，对得上）。这是改动前就存在的行为（`toTop` 在 scrollY=0 时是空操作），本次没动它。
