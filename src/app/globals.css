@@ -50,3 +50,16 @@ input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=color]):
 .motion-off .label-swap{animation:none}
 .motion-off .status-chip,.motion-off .status-chip:active:not(:disabled){transition:none;transform:none}
 @media(prefers-reduced-motion:reduce){.personal-space:not(.motion-on) .label-swap{animation:none}.personal-space:not(.motion-on) .status-chip,.personal-space:not(.motion-on) .status-chip:active:not(:disabled){transition:none;transform:none}}
+/* 顶部阅读进度条与回到顶部按钮（版式参考 yaronluo.com 的 Fuwari 主题） */
+.reading-progress{position:fixed;left:0;top:0;height:3px;width:100%;z-index:45;background:var(--space-accent);border-radius:0 3px 3px 0;transform:scaleX(0);transform-origin:left center;opacity:0;pointer-events:none;transition:opacity .35s ease}
+.reading-progress[data-active=true]{opacity:.9}
+.back-to-top{position:fixed;right:26px;bottom:30px;z-index:45;display:grid;justify-items:center;gap:1px;width:52px;padding:9px 0 8px;border:1px solid #f1ded4;border-radius:17px;background:rgba(255,250,244,.9);color:var(--space-accent);box-shadow:0 10px 26px #8b687721;-webkit-backdrop-filter:blur(9px);backdrop-filter:blur(9px);opacity:0;visibility:hidden;transform:translateY(12px) scale(.94);transition:opacity .3s ease,transform .3s cubic-bezier(.2,.7,.2,1),visibility .3s,color .2s,background .2s}
+.back-to-top.is-visible{opacity:1;visibility:visible;transform:none}
+.back-to-top.is-visible:hover{transform:translateY(-3px);background:#fffaf3;color:#c26a88}
+.back-to-top.is-visible:active{transform:scale(.94)}
+.back-to-top-label{font-size:9px;line-height:1.35;letter-spacing:1.5px;color:#bd8d9e}
+.back-to-top-star{position:absolute;top:-7px;right:-5px;font-size:11px;color:#e8c2cd;opacity:.55}
+.back-to-top.is-visible .back-to-top-star{animation:top-star-twinkle 2.6s ease-in-out infinite}
+@keyframes top-star-twinkle{0%,100%{opacity:.25;transform:scale(.72) rotate(-10deg)}50%{opacity:.95;transform:scale(1.1) rotate(8deg)}}
+@media(max-width:640px){.reading-progress{height:2.5px}.back-to-top{right:15px;bottom:18px;width:46px;padding:7px 0 6px;border-radius:15px}}
+@media(prefers-reduced-motion:reduce){.personal-space:not(.motion-on) .back-to-top{transition:none}}
