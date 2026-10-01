@@ -10,7 +10,7 @@ export function CursorNotes({enabled}:{enabled:boolean}){
     function move(event:PointerEvent){
       if(event.pointerType!=='mouse'||document.hidden)return;
       const now=performance.now();
-      if(now-lastTime<65||Math.hypot(event.clientX-lastX,event.clientY-lastY)<12)return;
+      if(now-lastTime<220||Math.hypot(event.clientX-lastX,event.clientY-lastY)<28)return;
       lastTime=now;lastX=event.clientX;lastY=event.clientY;
       const note=document.createElement('span');note.className='cursor-note';
       note.textContent=['♪','♫','♬'][index++%3];
@@ -20,7 +20,7 @@ export function CursorNotes({enabled}:{enabled:boolean}){
       note.style.setProperty('--note-rise',`${-45-Math.random()*30}px`);
       note.style.setProperty('--note-tilt',`${(Math.random()-.5)*36}deg`);
       note.addEventListener('animationend',()=>note.remove(),{once:true});
-      if(container!.childElementCount>=18)container!.firstElementChild?.remove();
+      if(container!.childElementCount>=5)container!.firstElementChild?.remove();
       container!.appendChild(note);
     }
     window.addEventListener('pointermove',move,{passive:true});
