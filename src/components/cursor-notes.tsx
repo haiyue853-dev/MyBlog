@@ -5,12 +5,10 @@ export function CursorNotes({enabled}:{enabled:boolean}){
   const layer=useRef<HTMLDivElement>(null);
   useEffect(()=>{
     const container=layer.current;if(!enabled||!container)return;
-    const reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
-    const fine=window.matchMedia('(any-pointer: fine)');
     let lastTime=-Infinity;let lastX=-Infinity;let lastY=-Infinity;let index=0;
     function clear(){container!.replaceChildren();lastTime=-Infinity;lastX=-Infinity;lastY=-Infinity;}
     function move(event:PointerEvent){
-      if(event.pointerType!=='mouse'||reduced.matches||!fine.matches||document.hidden)return;
+      if(event.pointerType!=='mouse'||document.hidden)return;
       const now=performance.now();
       if(now-lastTime<65||Math.hypot(event.clientX-lastX,event.clientY-lastY)<12)return;
       lastTime=now;lastX=event.clientX;lastY=event.clientY;
@@ -27,11 +25,10 @@ export function CursorNotes({enabled}:{enabled:boolean}){
     }
     window.addEventListener('pointermove',move,{passive:true});
     window.addEventListener('blur',clear);document.addEventListener('visibilitychange',clear);
-    reduced.addEventListener('change',clear);fine.addEventListener('change',clear);
     return()=>{
       window.removeEventListener('pointermove',move);window.removeEventListener('blur',clear);
       document.removeEventListener('visibilitychange',clear);
-      reduced.removeEventListener('change',clear);fine.removeEventListener('change',clear);clear();
+      clear();
     };
   },[enabled]);
   return <div ref={layer} className="cursor-notes" aria-hidden="true"/>;
