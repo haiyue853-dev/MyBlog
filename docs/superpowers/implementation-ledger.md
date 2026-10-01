@@ -64,3 +64,19 @@
 - 合并阈值为滚动超过 20px，连接和恢复均采用约 0.6 秒的缓动。ResizeObserver 按实际文字与布局尺寸计算轮廓，手机两行布局也能连接；关闭动效时直接切换。
 - 优化构建退出 0，包含 TypeScript 检查。实际浏览器 1280px 截图确认右边缘逐步延展、最终连成一条，返回顶部 data-joined=false；360px 合并可用、导航可点击且无横向溢出，背景保持 rgba(255,250,244,0.64) 与 opacity=1。
 - 截图 `outputs/header-right-during.png`、`outputs/header-right-expand.png`。已恢复原视口与主页，3000 正式预览继续运行；未部署到云端。
+
+## 后续：索引进度提示与原文文件名
+
+- 依据状态文档 4.3 的两个延后小项，先把 3000 正式预览重新拉起（此前进程已停止，`127.0.0.1:3000` 连接被拒绝），再补齐这两项。
+- 环境核查：`npm test` 25/26，唯一失败是 `backup.test.ts` 的 `spawnSync ...node.exe EBUSY`。手工复现同一流程（造数据 → 跑 `scripts/backup.ts` → 读回校验）得到私密记录、公开计数 0、站主密码校验、附件内容全部正确，确认失败只发生在派生子进程这一步，`spawnSync` 在本机沙箱内外都返回 EBUSY，属环境限制，不是本轮改动引起，也不是备份功能缺陷。
+- 原文文件名：`src/lib/iris-stream.ts` 增加 `sourceFileName` / `attachmentDisposition`。解析 `filename*`（UTF-8）优先、否则用 `filename`，percent 解码、剥离路径与控制字符、只有 `.`/`..` 或超长时回退 `iris-source`；输出对纯 ASCII 名称只写 `filename`，含非 ASCII 时补 `filename*=UTF-8''` 并保留 ASCII 兜底。`src/lib/api/iris.ts` 的 source 分支改用它，不再写死 `iris-source`。
+- 索引进度：先读本地 Iris 侧 `iris_agent/api/knowledge_api.py` 与 `rag_service.py`，确认 `GET /api/knowledge/index-progress` 返回 `{items:[{document_id,stage,message}]}`，stage 取值为 queued/parsing/chunking/graph/embedding/completed/failed，且这些路径本来就在白名单内，因此没有放宽代理白名单，也没有新增接口。
+- 新增 `src/lib/iris-status.ts`：阶段中文文案、`irisStageSettled` 终止判断、`status→stage` 归一（ready→completed）与按文档取进度（对上游返回值做类型防御）。
+- 资料柜导入后取上传响应里的文档 id，先 800ms 后每 3 秒轮询 `iris/knowledge/index-progress`，在文件行显示阶段文案，完成/失败即停；连续 3 次请求失败或超过 48 次也停；卸载时清定时器，换文件重新导入会重新开始。文案用上游 message，失败时显示失败原因。
+- Iris 页复用已有的资料列表接口（`status`/`error_message` 本来就在返回里），给每份资料加状态徽标；只要还有资料不是完成/失败，就每 3 秒刷新一次，最多 40 次，摘要行提示“有资料正在整理”。
+- 先写测试再实现：3 个 `iris-status` 用例与 2 个文件名用例先失败，实现后通过；`tests/api.test.ts` 的上游 mock 增加带文件名、纯 ASCII、路径穿越三种响应头，断言代理后的 `Content-Disposition`。
+- 验证：`npm test` 25/26（同上环境项）、`npm run typecheck` 退出 0、`npm run build` 退出 0。构建时先停掉占用 `.next/standalone` 的 3000 预览（`EBUSY: rmdir`），构建后重新启动。
+- 真浏览器验收（CDP + 本机 Chromium，脚本 `.test-data/browser-check.mjs`，模拟上游 `.test-data/mock-iris.mjs` 走 8000，测试库 `.test-data/browser`、服务 3101）：界面登录成功 → 资料柜点“导入 Iris” → 文件行出现“等待建立索引”徽标（class `doc-status is-working`）→ 约 11 秒后变“索引已完成”（`is-ready`）；Iris 页摘要“Iris 知识库里的资料 · N 份”，每行标题加状态徽标；页面内同源请求读到 `attachment; filename="____.md"; filename*=UTF-8''%E6%B5%8B%E8%AF%95%E8%B5%84%E6%96%99.md`，即保留“测试资料.md”。截图 `outputs/files-import-progress.png`、`outputs/files-import-ready.png`、`outputs/iris-knowledge-status.png`。
+- 验收用的模拟上游与 3101 测试服务已停止，端口已释放；正式预览回到 3000，正式库仍为站主 0、条目 0、附件 0，未被测试数据污染。
+- 提交 `8379a49`。未做云端部署，未验证真实 Iris 的进度返回（本轮用的是按真实接口字段写的模拟上游）。
+
