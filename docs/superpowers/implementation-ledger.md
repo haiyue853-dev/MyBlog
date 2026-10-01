@@ -97,3 +97,18 @@
 - 复验：`outputs/brand-hover.png`（4 倍放大）上下边线对称、染色铺满；`brand-idle.png` 未聚焦外观未变；`brand-joined-hover.png` 合并状态正常。测量数值见该脚本输出，脚本为 `.test-data/brand-check.mjs`（真实鼠标事件 `Input.dispatchMouseEvent` 触发 `:hover`，`LW_BASE` 可指定端口）。
 - 只改样式，未动逻辑；`npm run build` 退出 0，`npm test` 25/26（同上环境项）。提交 `6dfce16`。
 
+## 后续：文案切换的过渡动效
+
+- 用户要求“点一下更新那个文案……不要直接变”。核对后确认指的是主页那条小屋寄语：`space.tsx` 的 `sayings` 数组配 `daily-quote` 按钮，点一下换下一句，文字是直接替换的。第一轮改在了 Iris 连接状态芯片上，属于找错位置，本轮补上正确的目标，同类问题一并处理。
+- 做法：文案变化时让承载文本的元素用 `key` 重新挂载，配合一次性 CSS 动画。`globals.css` 新增 `@keyframes label-swap`（`opacity 0 → 1`、`translateY(4px) → 0`，0.26s，`cubic-bezier(.2,.7,.2,1)`，`fill-mode: both`）与 `.label-swap`（`display:inline-block;min-width:0`）。只换文本节点，父级胶囊的背景和圆点动画不受影响。
+- 应用位置三处：小屋寄语的 `<span>`（`key={sayings[sayIndex]}`）、Iris 连接状态芯片的文案（键为 connecting / online / offline）、索引进度徽标内部的文案（资料柜 `key={progress.message}`，Iris 列表 `key={stage}`）。
+- 顺带给状态芯片加了按下反馈（`:active` 时 `scale(.96)`）与 `transform/background/color` 过渡，连接中（`online===null`）时 `RefreshCw` 图标复用已有的 `.spin` 转动。
+- 关闭动效的路径：`.motion-off .label-swap{animation:none}`、`.motion-off .status-chip` 及其 `:active` 去掉过渡与缩放，另有 `@media(prefers-reduced-motion:reduce)` 下对 `.personal-space:not(.motion-on)` 的同类覆盖，与项目既有约定一致。
+- 验收（`.test-data/label-swap-check.mjs`，CDP + 逐帧 `requestAnimationFrame` 采样计算样式的 opacity / transform）：
+  - 寄语：点击前 `今天也有值得期待的小事。` → 点击后 `喜欢的音乐，会陪你走过平凡的一天。`，元素 `__mark` 探针在重挂载后消失（`remounted: true`），采样 55 帧中 8 帧 `opacity < 0.9`、最小 0，transform 依次为 `translateY(4 → 3.07 → 2.19 → 1.51)`，证明淡入上浮确实在跑而不是跳变。
+  - 连接状态芯片：采样 61 帧，7 帧 `opacity < 0.9`、最小 0，transform 同样从 4 递减，`remounted: true`，文案 `已连接`。
+  - 索引进度徽标：导入一份资料后采样 614 帧，33 帧 `opacity < 0.9`、最小 0，77 帧发生位移，最终落到 `索引已完成` 且徽标转为 `is-ready`。
+  - 关闭动效时 `.label-swap` 的 `animation-name` 为 `none`、芯片 `transition-duration` 为 `0s`。
+- 截图 `outputs/label-swap-saying.png`、`label-swap-chip.png`、`label-swap-status.png`（截图为动画结束后的稳定态，动效本身以上面的采样数据为准）。`npm run typecheck` 退出 0，`npm test` 25/26（失败项仍是 `backup.test.ts` 的本机派生子进程问题）。提交 `73e7188`。
+- 复验提醒：3101 测试服务占用 `.next/standalone`，改代码后必须先停它再 `npm run build`，否则报 `EBUSY: rmdir`。
+
