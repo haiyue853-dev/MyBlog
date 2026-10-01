@@ -133,3 +133,23 @@
 - 又踩了一次的坑：`Page.captureScreenshot` 的 clip 用文档坐标，`position:fixed` 元素必须加 `window.scrollY` 才能截到，第一版截回来是空白。
 - 只加前端表现，未动接口与数据；`npm run typecheck` 退出 0，`npm test` 25/26（失败项仍是 `backup.test.ts` 的本机派生子进程问题）。提交 `c11f4bf`。
 
+## 后续：顶栏加大与加粗
+
+- 用户说「头部 bar 可以做大一点字体加粗大一点」。顶栏、TOP 按钮、进度条三个候选里确认指的是**顶栏**（`My little world` + 主页/生活碎片/收藏小屋/资料柜/Iris + 右侧工具图标）。
+- 改尺寸前先量了基线：桌面态品牌名 178.39×49（14px/600）、导航 497.27×56（按钮 80×40，13px/500，图标 17）、三个图标按钮 97→138（38×38），顶栏总高 104px。
+- 桌面基础档（`>1100px`）的改动：
+  - `.brand` `padding:9px 17px → 11px 19px`、`gap:10 → 11`、`border-radius:30 → 34`、**补上显式 `font-size:15px`**（原先继承 body 的 14px）、`font-weight:600 → 700`、`max-width:260 → 300px`。
+  - `.brand-avatar` 与 `.brand-avatar img` 29 → 33px。
+  - `.main-nav` `padding:7px 11px → 9px 13px`、`gap:4 → 5`、`border-radius:34 → 38`。
+  - `.main-nav button` `padding:4px 15px → 9px 16px`、`gap:7 → 8`、`border-radius:22 → 24`、`font-size:13 → 14px`、`font-weight:500 → 600`。
+  - `.header-tools` `padding:5px 8px → 7px 10px`、`gap:3 → 4`、`border-radius:30 → 34`。
+  - `space.tsx` 图标同步：导航 `size 17 → 18`、名牌占位 `Music2 19 → 21`、`Flower2 19 → 20`、`Settings/LogOut/LockKeyhole 18 → 19`。
+- **作用域收窄（关键）**：`.icon-button` 原本想直接全局 38 → 43px，但它同时用在资料柜行内操作（下载/导入/删除）和弹窗关闭按钮上，全局改会顺手改掉两处与本次需求无关的地方。改为保持 `.icon-button` 38px 不动，新增 `.site-header .header-tools .icon-button{height:43px;width:43px;min-height:43px}` 只作用于顶栏；触摸设备下再加一条 `.site-header .header-tools .icon-button{44px}` 以守住 44px 的点击目标（`.icon-button{width:42px}` 恢复原值）。
+- 媒体查询逐档同步，避免小屏被撑爆：`≤1100px` 品牌 13px/230px/`9px 14px`、导航 `padding:8px`、导航按钮 `8px 12px`/13px；`≤640px` 品牌 13px/230px、头像回落到 29px、工具区 `4px 7px`；`≤380px` 品牌 12px/195px/`9px 12px`。`≤640px` 与 `≤380px` 的**导航按钮字号刻意不动**——量下来 640px 时导航宽度 604px 正好等于可用宽度 604px，再放大必然溢出。`@media(pointer:coarse)` 的 `.main-nav button{min-height:40px}` 提到 44px。
+- 布局安全性：顶栏视觉胶囊由 `.site-header::before/::after` 用 `--header-clip-*` 渲染，`scroll-header.tsx` 的 `measure()` 在读三个胶囊的 rect，而它用 `ResizeObserver` 监听了 `.site-header/.brand/.main-nav/.header-tools`，所以尺寸一改会自动重算 path，**该文件无需改动**。`radius=n.top>b.top+5?27:h/2` 的换行判断也照旧成立（单行时 nav.top < brand.top，换行时 nav 落到第二行）。
+- 验收（`.test-data/header-metrics.mjs`，CDP 在 14 个视口宽度上量真实盒子，并检查横向溢出 / 换行 / 品牌名被省略号截断）：改后桌面态品牌名 194.77（+9.2%）、导航 541.73（+8.9%）、导航按钮 86×42.5、工具区 159、图标按钮 43×43、顶栏总高 104 → 110.5px（+6.3%）。
+  - 全部 14 个宽度（1600 → 360）`docOverflow=0`、`brandClipped=false`，即无横向滚动条、品牌名也没被截断。
+  - 作用域检查：顶栏图标 43×43，而弹窗关闭按钮 37×37、资料柜行内按钮 38×38，两处都保持原值，证明收窄生效。
+  - 截图 `outputs/header-{before,after}-1440.png`（含滚动后的合并胶囊态）、`-640.png`、`-380.png`；对比页 `outputs/header-compare.html`（整条顶栏 1:1 + 名牌/导航/工具区 2× 放大 + 小屏，改前改后并排）。
+- 只改排版尺寸，未动接口、数据与交互逻辑；`npm run typecheck` 退出 0，`npm run build` 通过。
+
