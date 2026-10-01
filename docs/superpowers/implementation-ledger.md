@@ -183,3 +183,30 @@
 - 复测（同脚本、同 DPR=1、同区域）：**深度 5.67 → 32**，扩散 19 → 39 设备像素，最暗处 `rgb(244,229,221)` → `rgb(220,203,192)`。@media 各档与合并态都不覆盖这两条规则，所以所有宽度一致；box-shadow 不参与布局，尺寸无回归。
 - 截图：`outputs/shadow-profile-{before,after}.png`（同区域窄条，直接可叠比）、`header-shadow-zoom.png`（展开态 4×）、`header-shadow-joined-zoom.png`（合并态 4×）、`header-shadow-1440.png`、`header-shadow-joined.png`；对比页 `outputs/header-shadow-compare.html`。
 - 遗留：上面那三条死掉的 `box-shadow` 声明建议之后清掉，但那是与本次需求无关的改动，没有顺手动。
+
+## 后续：撤掉名牌 hover、改名 Hai's Little World
+
+- 用户说「头部左边那个 hover 去掉吧换成 Hai's Little World」。两件事：**摘掉名牌的 hover 特效**、**把名牌文案改成 `Hai's Little World`**。
+- 撤 hover（`src/app/globals.css`）：
+  - 删掉老写法 `.brand{transition:background .25s,box-shadow .25s}` + `.brand:hover{background:rgba(255,248,240,.8);box-shadow:0 8px 28px #b57d931c,inset 0 1px 0 #ffffffb3}`。
+  - 删掉 `.site-header .brand:hover{background:color-mix(in srgb,var(--space-accent) 10%,transparent)}`。
+  - 整个 `@supports selector(:has(*)){…}` 块删掉——里面三条规则全是名牌 hover 专用（`.brand:hover{background:transparent}`、`:has(.brand:hover)::after` 画底色、合并态回退）。删完之后 `:has(` 在文件里归零。
+  - `.site-header::after` 的 transition 去掉只为名牌 hover 加的 `,background .25s ease`，恢复成只过渡 `inset`。
+  - 注释改写：名牌不做 hover 变色、也不做位移。
+  - **随之失效的旧方案**：上一轮为「名牌 hover 底部亮缝」搞的「把 hover 底色交给 `::after`，让填充与描边同属一个元素」整套逻辑，因为 hover 本身没了而整体删除。那条缝不会再出现。
+  - 没顺手动：`.motion-off .site-header :is(.brand,button,button svg){transform:none!important}` 里的 `.brand` 是冗余的（名牌本来就是 `button`），无害，留着。
+- 改名：
+  - `src/lib/types.ts` 的 `DEFAULT_PROFILE.name`：`My little world` → `Hai's Little World`。
+  - 顺带把 `src/app/layout.tsx` 的 metadata title 同步成 `Hai's Little World · 我的个人小屋`，否则浏览器标签页还写着旧名。
+  - 数据库不用迁移：`SELECT key,data FROM settings` 返回空，说明从没保存过自定义资料，页面一直读的是 `DEFAULT_PROFILE`。改默认值即生效。
+  - 同一个 `profile.name` 还渲染在侧栏 profile-card 的 `<h2>` 与页脚 `{profile.name} · MUSIC & MOMENTS` 上，一并跟着变。
+  - 撇号用 ASCII `'`（用户在中文输入法里打出来的是 U+2018，不是要那个字符）。字符串因此改用双引号，项目里没有 prettier/eslint 配置，不影响风格。
+- 验收（新增 `.test-data/brand-nohover-check.mjs`）：每个宽度下先截名牌周围一块（留 10px 余量、2× 放大），用真实鼠标事件 hover 之后再截一块，两个 PNG 塞回页面用 canvas 解码**逐像素比对**。同时截两张「完全不 hover」的图作为**噪声底**。DPR 1 与 1.5 各跑 1440 / 1100 / 900 / 640 / 380：
+  - 噪声底 **0 像素**（无头浏览器渲染是确定性的），所以 diff=0 是强证据而不是「刚好没量到」。
+  - hover 后 **0 像素差、maxΔ 0**，五个宽度、两个 DPR 全部如此；同时 `brand.matches(':hover')===true`，证明鼠标确实进到元素上，不是假通过。
+  - 对照组：导航「主页」按钮 hover 仍有 **6083~9048** 像素差（maxΔ 108~110）→ hover 只从名牌身上摘掉了，导航与工具的浮起没被误伤。
+  - 名牌文字全部是 `Hai's Little World`；各宽度 `scrollWidth === clientWidth`（不裁切）、`docOverflow = 0`；文字右缘到胶囊内壁还剩 20 / 15 / 15 / 15 / 13px。
+  - hover 后的计算样式：`background-color: rgba(0,0,0,0)`、`box-shadow: none`、`transform: none`、顶栏 `::after` 的 `background-color: rgba(0,0,0,0)` —— 和默认态一字不差。
+- 又踩了一次 `.cursor-notes`：鼠标移动会沿路撒光标星屑（`.cursor-note`，1.25s 动画）。第一版脚本 hover 后只等 900ms 就截图，在 DPR 1.5 / 900px 上量到 1617 像素差（maxΔ 12），一看就是星屑没落干净；把等待拉到 2200ms 并确认 `document.querySelectorAll('.cursor-note').length === 0` 之后就是 0。**凡是用「两张截图逐像素对比」做验收的脚本，都要先让星屑收干净，否则会把随机装饰当成样式变化。**
+- 截图：`outputs/brand-nohover-<宽度>-dpr<DPR>-{before,hover}.png`；报告 `outputs/…` 同目录外另有 `.test-data/brand-nohover-dpr1.json` 与 `.test-data/brand-nohover-dpr1.5.json`。
+- 遗留：`docs/项目状态总结.md` 按用户要求不自动更新，如果里面写了旧站名，等用户下指令时再一起改。三条死掉的 `box-shadow`（见上一节）仍未清理。
