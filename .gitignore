@@ -9,6 +9,7 @@ data/
 test-results/
 playwright-report/
 .superpowers/
+.workbuddy/
 backups/
 *.tsbuildinfo
 outputs/
