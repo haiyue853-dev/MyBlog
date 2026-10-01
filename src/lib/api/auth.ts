@@ -1,7 +1,7 @@
 import {getStore} from '../store';
 import {hashPassword,verifyPassword} from '../security';
 import {MIN_PASSWORD_LENGTH} from '../types';
-import {ApiError,isOwner,json,newToken,readJson,requireOrigin,sessionCookie,tokenFrom} from '../http';
+import {ApiError,isOwner,json,newToken,readJson,requireOrigin,sessionCookie,SESSION_MAX_AGE,tokenFrom} from '../http';
 
 export async function authApi(request:Request,path:string[]){const store=getStore();
   if(request.method==='GET'&&path.length===1)return json({owner:isOwner(request),configured:!!store.getOwner()});
@@ -19,8 +19,8 @@ export async function authApi(request:Request,path:string[]){const store=getStor
     const name=(typeof data.name==='string'?data.name.trim():'').slice(0,50)||'小屋站主';
     store.setOwner(name,hashPassword(password));
     console.log(`[setup] 站主账号已创建（${name}）。要改昵称或重设密码，在终端跑 npm run setup-owner。`);
-    const token=newToken();const maxAge=7*24*60*60;store.createSession(token,Date.now()+maxAge*1000);
-    return json({owner:true},201,{'Set-Cookie':sessionCookie(request,token,maxAge)});
+    const token=newToken();store.createSession(token,Date.now()+SESSION_MAX_AGE*1000);
+    return json({owner:true},201,{'Set-Cookie':sessionCookie(request,token,SESSION_MAX_AGE)});
   }
   if(path[1]!=='login')throw new ApiError(404,'没有找到这项内容。');
   if(store.loginBlocked())throw new ApiError(429,'尝试次数过多，请 15 分钟后再试。');
@@ -28,6 +28,6 @@ export async function authApi(request:Request,path:string[]){const store=getStor
   if(password.length>256)throw new ApiError(400,'密码长度不正确。');const owner=store.getOwner();
   if(!owner)throw new ApiError(503,'站主账号尚未初始化。');
   if(!verifyPassword(password,owner.password)){store.recordLoginFailure();throw new ApiError(401,'密码不正确，请再试一次。');}
-  store.clearLoginFailures();const token=newToken();const maxAge=7*24*60*60;store.createSession(token,Date.now()+maxAge*1000);
-  return json({owner:true},200,{'Set-Cookie':sessionCookie(request,token,maxAge)});
+  store.clearLoginFailures();const token=newToken();store.createSession(token,Date.now()+SESSION_MAX_AGE*1000);
+  return json({owner:true},200,{'Set-Cookie':sessionCookie(request,token,SESSION_MAX_AGE)});
 }

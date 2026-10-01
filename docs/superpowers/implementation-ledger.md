@@ -346,3 +346,42 @@
 - 用户要求「密码8位就行了」。
 - 新增 `MIN_PASSWORD_LENGTH = 8`（放在 `src/lib/types.ts`）作为**唯一出处**，三处校验共用：服务端 `auth/setup`、终端 `npm run setup-owner`、前端建站表单的本地预校验与字段提示。放 `types.ts` 而不是 `security.ts`，是因为前端不能引用 `security.ts`（那边依赖 `node:crypto`），而这个文件本来就是纯模块（`CARD_RATIOS` / `cardAspect` 也在里面）。
 - `tests/setup.test.ts` 里把原来写死的 `'elevenchars'` 换成 `'x'.repeat(MIN_PASSWORD_LENGTH-1)`，并在最后一条加上**边界断言**：差一位 → 400，刚好够长 → 201（借那条测试已有的「删掉 owner 行退回原始状态」的后门来测第二次建站）。
+
+## 后续：站主只登录一次（会话寿命与续期）
+
+- 用户要求：「设置一下只有我每次进去可以编辑 然后路人的话只能看 总不能我每次进去都要重新登录吧」。
+- **先说结论：前半句不用改，已经是现在的行为。** 逐条核对过：
+  - 所有写接口（`items` POST/PUT/DELETE、`files` POST/DELETE、`profile` PUT、`iris` 全部）都先 `requireOwner`（401）再 `requireOrigin`（403）。
+  - `store.listItems(owner)` 在非站主时只返回 `visibility='public'` 的行；`getItem(id, owner)` 同理，私密条目对路人直接 404。
+  - `/api/files`（列表本身）和 `/api/iris` 整体要站主身份；只有 `profile` 读是公开的 —— 首页要展示头像和昵称。
+  - 前端 `space.tsx` 里私密栏目是 `{view==='files'&&owner&&<Files/>}` 这种条件渲染，而且 `go()` 对路人会先弹登录框（`privateViews.includes(next)&&!owner` → `setLogin(true)`），所以路人点「资料柜」看到的是登录提示，不是 401 报错页。
+  - 编辑 / 删除按钮（`.owner-card-actions`、「记一笔 / 收一份喜欢」）全部包在 `owner &&` 里。
+- **真正的问题在会话**：`sessionCookie` 发的是 `Max-Age=7*24*60*60`，而且**从来没有续期逻辑** —— 登录一次管 7 天，之后连在用的状态下也会被踢出去重输密码。用户说的「每次进去都要重新登录」，体感来源应该是这个（加上浏览器重启后 session cookie 丢失，不过这里发的本来就是持久 cookie）。
+- 改动：
+  - `src/lib/http.ts`：`SESSION_MAX_AGE = 180*24*60*60`（半年）作为唯一出处，`auth.ts` 里两处原本各自写死的 `7*24*60*60` 局部变量删掉。新增 `renewSession(request, response)`。
+  - `src/lib/store.ts`：新增 `sessionExpires(token)` 与 `extendSession(token, expires)`。
+  - `src/app/api/[...path]/route.ts`：把原来的 `handler` 拆成 `dispatch()`（业务分发）+ `handler`（`renewSession(request, await dispatch(...))`），续期统一在出口做，各接口不用各自操心。
+- 三个设计决定，都是为了不做多余的事：
+  - **只在剩余寿命掉到一半以下才续期**（`SESSION_RENEW_BELOW = SESSION_MAX_AGE/2`）。每个请求都写一次库、都重发一次 `Set-Cookie` 是没必要的；半年寿命下这样能保证「只要还在用，就永远剩一半以上」。
+  - **续期排在业务处理之后**。登出已经把会话行删了，`sessionExpires()` 返回 `null`，续期逻辑自然碰不到它，不会把登出的会话复活。
+  - 名字叫 `token.length !== 64` 就直接跳过 —— 跟 `isOwner` 同一个前置判断，不拿乱字符串去查库。
+- **踩到的坑（本轮最值得记的一条）**：`renewSession` 必须**重新构造 Response**，不能直接 `response.headers.append('Set-Cookie', …)`。`Response.json()` 出来的 headers 守卫是 `"response"`，而 `Set-Cookie` 属于 forbidden response-header name，`append` 会被**静默丢弃** —— 没有报错、没有 cookie。必须 `new Headers(response.headers)`（守卫 `"none"`）之后再 `new Response(body, {…, headers})`。
+  - 这条的危险之处在于：`tests/session.test.ts` 里那几条「应该重发 Set-Cookie」的断言**如果只测到这一层，是能过的**（因为库里确实续期了），而线上客户端其实一个字节都收不到。所以验收脚本里额外直接读响应头 `getSetCookie()` 来钉死这条，不能只看库里的值变了就以为成了。
+- 验收（`.test-data/session-check.mjs`，全新空库 + 3102，跑完即弃；库是 WAL 模式，所以脚本能另开一条连接直接改 `sessions` 表来模拟「会话快到期」）：
+  - **路人**：`GET items` → 200 只看到 1 条（私密那条没出现）；`POST items` → 401；`GET files` → 401；`GET iris/status` → 401；`GET profile` → 200（公开）。
+  - **已登录 + 伪造 Origin**：403 —— 注意路人伪造 Origin 只会撞到 401，因为 `itemsApi` 里 `requireOwner` 排在 `requireOrigin` 前面，没登录就先被挡了，403 那条分支根本没机会跑。要证明同源防护是活的，必须用**已登录**的身份去打。
+  - **会话寿命**：建站发的 = 180 天，登录发的 = 180 天（原来都是 7 天）。
+  - **不必要不续期**：刚登录就请求一次，响应里没有 `Set-Cookie`。
+  - **续期**：把库里到期时间改成 60 秒后 → 下一次请求响应里带 `Set-Cookie`，`Max-Age=15552000`，且**库里的到期时间确实往后推了 180 天**。
+  - **登出**：`POST auth/logout` → 200；再 `GET auth` → `{owner:false,configured:true}`，且**没有被续期逻辑复活**（响应里没有 `Set-Cookie`）；拿登出后的 cookie 去写 → 401。
+  - **过期会话**：读公开列表 200、写 401。
+  - **真实浏览器（这条是用户真正在问的）**：用登录弹窗登录 → 有「退出按钮」、磁盘 cookie 剩 180 天、`HttpOnly` 是 → **关掉整个浏览器** → 用同一个 `--user-data-dir` 重新打开 → **还是站主态、没有再弹登录框、cookie 还剩 180 天、「记一笔」入口在、打开的是编辑器**。
+- **关于「关掉浏览器」这个动作本身，单独写了个小实验（`.test-data/cookie-persist-experiment.mjs`）**，因为第一、二版验收都量到「重开变回路人」，一度以为是功能没生效：
+  - **① `Browser.close` 后耐心等它自己退 → cookie 写进了 `Default/Network/Cookies`，退出码 0。**
+  - **② 直接 SIGKILL → Cookies 库里没有这条 cookie。**
+  - **③ 先导航到 `about:blank` 再优雅关闭 → 也写盘了。**
+  - 结论：Chromium 的 cookie 是内存里攒着、**退出时才落盘**的，硬杀等于什么都没留下。而第一版脚本的真凶更蠢 —— 我在发 `Browser.close` **之前**就 `first.close()` 把 CDP socket 关了，那条指令根本没发出去，浏览器没走优雅退出，紧接着的补刀又把 flush 截断了。
+  - 顺带一个 CDP 的坑：浏览器一关 socket 就断，**不会有任何回应回来**，所以 `pending` 必须在 socket `close` 时全部 reject 掉，否则 `await browserSend('Browser.close')` 会永远挂着 —— 第二版就是这么卡死 3 分钟的。脚本里另加了一个 150 秒看门狗兜底。
+  - 这两条都写进了脚本注释，免得下次再踩。
+- 新增 `tests/session.test.ts`（5 条）锁住服务端行为：登录发的是「月」不是「天」、刚登录不重发 `Set-Cookie`、过半就续期、登出后不复活、过期会话被拒绝而不是被续期。
+- 整机 `npm test` **43 项 42 通过**（唯一失败仍是预存在的 `backup.test.ts` 派生子进程 `EBUSY` 环境问题），`npm run typecheck` 退出 0，`npm run build` 通过。

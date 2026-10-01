@@ -36,6 +36,8 @@ export class Store {
   private tokenHash(token:string){return createHash('sha256').update(token).digest('hex');}
   createSession(token:string,expires:number){this.db.prepare('DELETE FROM sessions WHERE expires<?').run(Date.now());this.db.prepare('INSERT INTO sessions(token,expires) VALUES(?,?)').run(this.tokenHash(token),expires);}
   hasSession(token:string):boolean{return !!this.db.prepare('SELECT token FROM sessions WHERE token=? AND expires>?').get(this.tokenHash(token),Date.now());}
+  sessionExpires(token:string):number|null{const row=this.db.prepare('SELECT expires FROM sessions WHERE token=? AND expires>?').get(this.tokenHash(token),Date.now());return row?Number(row.expires):null;}
+  extendSession(token:string,expires:number){this.db.prepare('UPDATE sessions SET expires=? WHERE token=?').run(expires,this.tokenHash(token));}
   deleteSession(token:string){this.db.prepare('DELETE FROM sessions WHERE token=?').run(this.tokenHash(token));}
   loginBlocked():boolean{const row=this.db.prepare('SELECT count,started FROM login_attempts WHERE id=1').get();return !!row&&Number(row.count)>=10&&Number(row.started)>Date.now()-15*60*1000;}
   recordLoginFailure(){const row=this.db.prepare('SELECT count,started FROM login_attempts WHERE id=1').get();const recent=row&&Number(row.started)>Date.now()-15*60*1000;this.db.prepare('INSERT INTO login_attempts(id,count,started) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET count=excluded.count,started=excluded.started').run(recent?Number(row.count)+1:1,recent?Number(row.started):Date.now());}
