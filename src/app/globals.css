@@ -23,9 +23,9 @@
 .site-header :is(.brand,.main-nav,.header-tools){position:relative;isolation:isolate;z-index:1;background:transparent;border-color:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none}
 .site-header::before{content:'';position:absolute;inset:0;z-index:-1;background:rgba(255,250,244,.64);-webkit-backdrop-filter:blur(30px) saturate(150%);backdrop-filter:blur(30px) saturate(150%);clip-path:var(--header-clip-open,inset(0 100% 0 0));pointer-events:none;transition:clip-path .6s cubic-bezier(.22,.68,.18,1)}
 .site-header.is-joined::before{clip-path:var(--header-clip-joined)}
-.site-header::after{content:'';position:absolute;inset:var(--header-top-open,24px) var(--header-right-open,44px) var(--header-bottom-open,24px) var(--header-left,44px);z-index:-1;border:1px solid #ffffffa3;border-radius:34px;box-shadow:0 6px 24px #82635312,inset 0 1px 0 #ffffff8c;pointer-events:none;transition:inset .6s cubic-bezier(.22,.68,.18,1),background .25s ease}
+.site-header::after{content:'';position:absolute;inset:var(--header-top-open,24px) var(--header-right-open,44px) var(--header-bottom-open,24px) var(--header-left,44px);z-index:-1;border:1px solid #ffffffa3;border-radius:34px;box-shadow:0 2px 5px #82635326,0 12px 30px #82635333,inset 0 1px 0 #ffffffb3;pointer-events:none;transition:inset .6s cubic-bezier(.22,.68,.18,1),background .25s ease}
 .site-header.is-joined::after{top:var(--header-top-joined);right:var(--header-right-joined);bottom:var(--header-bottom-joined)}
-.site-header :is(.main-nav,.header-tools)::before{content:'';position:absolute;inset:-1px;z-index:-1;border:1px solid #ffffffa3;border-radius:inherit;box-shadow:0 5px 20px #82635310,inset 0 1px 0 #ffffff8c;pointer-events:none;transition:border-color .6s,box-shadow .6s}
+.site-header :is(.main-nav,.header-tools)::before{content:'';position:absolute;inset:-1px;z-index:-1;border:1px solid #ffffffa3;border-radius:inherit;box-shadow:0 2px 5px #82635326,0 10px 26px #8263532e,inset 0 1px 0 #ffffffb3;pointer-events:none;transition:border-color .6s,box-shadow .6s}
 .site-header.is-joined :is(.main-nav,.header-tools)::before{border-color:transparent;box-shadow:none}
 /* 名牌胶囊的填充与那圈高光来自顶栏那块静止的 ::before/::after 背景层。名牌自己的盒子就是胶囊，
    再让它上移就会把着色带离胶囊边，底部露出一条没被染色的缝；所以名牌只改配色，不做位移。

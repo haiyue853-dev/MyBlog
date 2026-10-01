@@ -168,3 +168,18 @@
 - 验收（`.test-data/brand-hover-dpr.mjs`，DPR 1 / 1.25 / 1.5 / 2 各跑一次）：hover 时确认 `brand=rgba(0,0,0,0)`、`::after=...0.1)`、`:has支持=true`；**底部亮带降到 1~2 设备像素**（DPR 1.25 下底部 1px、顶部 3px，不再比顶部厚）。下缘色带采样显示是「填充 → 1~2 行抗锯齿过渡 → 阴影」，不再是整片玻璃。
 - 截图：`outputs/brand-hover-diagnose.png`（修复前）、`brand-hover-after.png`（修复后）、`brand-hover-joined.png`（合并态），对比页 `outputs/brand-hover-compare.html`。
 - 顺带又踩了一次同一个坑：`Page.captureScreenshot` 的 clip 用文档坐标，顶栏是 `position:sticky`，滚动后必须把 `window.scrollY` 加进 clip 的 y，否则截回空白。
+
+## 后续：加强顶栏的边界阴影
+
+- 用户要求「顶部 bar 的边界阴影可以明显一点」。
+- 先理清阴影来源。三条 `.brand` / `.main-nav` / `.header-tools` 上的 `box-shadow:0 5px 19px #8969550d`（以及 `@media(max-width:850px)` 里那条同值声明）都是**死代码**——后面的无条件规则 `.site-header :is(.brand,.main-nav,.header-tools){box-shadow:none}` 把它们覆盖了（同特异性、位置更靠后）。真正生效的只有两条：
+  - `.site-header::after`：名牌在展开态、整条 bar 在合并态的描边，`0 6px 24px #82635312, inset 0 1px 0 #ffffff8c`
+  - `.site-header :is(.main-nav,.header-tools)::before`：导航与工具的描边，`0 5px 20px #82635310, inset 0 1px 0 #ffffff8c`
+- 先量基线（新增 `.test-data/header-shadow-check.mjs`，沿胶囊中心列从下缘往下逐行读像素）：背景亮度 237，最暗行 231.33，**阴影深度只有 5.67/255（约 2.2%）**，19 个设备像素内就回到背景——确实几乎看不见。
+- 改法：两层阴影，一层贴边做边界定义、一层散开做悬浮感，并把顶部内侧高光提亮一点让边界更利落。
+  - `.site-header::after` → `0 2px 5px #82635326, 0 12px 30px #82635333, inset 0 1px 0 #ffffffb3`
+  - `.site-header :is(.main-nav,.header-tools)::before` → `0 2px 5px #82635326, 0 10px 26px #8263532e, inset 0 1px 0 #ffffffb3`
+  - 阴影色沿用原有的暖棕 `#826353`，不引入新颜色。
+- 复测（同脚本、同 DPR=1、同区域）：**深度 5.67 → 32**，扩散 19 → 39 设备像素，最暗处 `rgb(244,229,221)` → `rgb(220,203,192)`。@media 各档与合并态都不覆盖这两条规则，所以所有宽度一致；box-shadow 不参与布局，尺寸无回归。
+- 截图：`outputs/shadow-profile-{before,after}.png`（同区域窄条，直接可叠比）、`header-shadow-zoom.png`（展开态 4×）、`header-shadow-joined-zoom.png`（合并态 4×）、`header-shadow-1440.png`、`header-shadow-joined.png`；对比页 `outputs/header-shadow-compare.html`。
+- 遗留：上面那三条死掉的 `box-shadow` 声明建议之后清掉，但那是与本次需求无关的改动，没有顺手动。
