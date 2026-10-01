@@ -1,0 +1,32 @@
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    environment:
+      APP_URL: https://${SITE_DOMAIN:?请在.env设置SITE_DOMAIN}
+      IRIS_BASE_URL: ${IRIS_BASE_URL:-http://host.docker.internal:8000}
+      IRIS_API_TOKEN: ${IRIS_API_TOKEN:-}
+      DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    expose:
+      - "3000"
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?请在.env设置SITE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+volumes:
+  caddy_data:
+  caddy_config:
