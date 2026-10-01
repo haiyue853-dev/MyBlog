@@ -385,3 +385,44 @@
   - 这两条都写进了脚本注释，免得下次再踩。
 - 新增 `tests/session.test.ts`（5 条）锁住服务端行为：登录发的是「月」不是「天」、刚登录不重发 `Set-Cookie`、过半就续期、登出后不复活、过期会话被拒绝而不是被续期。
 - 整机 `npm test` **43 项 42 通过**（唯一失败仍是预存在的 `backup.test.ts` 派生子进程 `EBUSY` 环境问题），`npm run typecheck` 退出 0，`npm run build` 通过。
+
+## 后续：修掉「请求来源不匹配」——同源校验误信 request.url
+
+- 用户直接贴了报错文案：「请求来源不匹配，请从本站重新操作。」这是 `requireOrigin` 抛的 403。
+- 复现与定位（`.test-data/origin-check.mjs` 起一个**不设 APP_URL** 的实例，交叉跑 Origin × Host 四种组合）：
+
+  | Origin | Host | 修复前 |
+  |---|---|---|
+  | `http://127.0.0.1:3000` | `127.0.0.1:3000` | **403** |
+  | `http://127.0.0.1:3000` | `localhost:3000` | **403** |
+  | `http://localhost:3000` | `127.0.0.1:3000` | 400（放行） |
+  | `http://localhost:3000` | `localhost:3000` | 400（放行） |
+
+  也就是说**请求的 Host 头完全不影响判定，只有 Origin 用 `localhost` 才能过**。而 `http://127.0.0.1:3000` 正是 Next 启动横幅打印出来的 Local 地址 —— 按它给的地址打开，所有写操作（登录、建站、记一笔、上传、改资料）全部 403。
+- 真因：**Next 的 standalone server 会把 `request.url` 的 host 写成 `localhost`**。加了个临时探针路由（`/probe`，用完即删）直接把原始值打出来，一次请求同时看到：
+
+  | 字段 | 值 |
+  |---|---|
+  | `request.url` | `http://localhost:3101/probe` ← **恒为 localhost** |
+  | `host` | `127.0.0.1:3101` |
+  | `x-forwarded-host` | `127.0.0.1:3101` |
+  | `x-forwarded-proto` | `http` |
+  | `__NEXT_PRIVATE_ORIGIN` | `http://127.0.0.1:3101` |
+
+  而 `requireOrigin` 传的第三个参数 `process.env.APP_URL` 在正式服务上是空的（没配 `.env.local`），于是 `configuredOrigin || requestUrl` 落到了那个被改写过 host 的 `request.url` 上 → Origin 永远对不上。
+  - 附带确认：静态段路由 `/api/__probe/route.ts` **会被 `/api/[...path]` catch-all 抢走**（实测 404「没有找到这项内容」），探针必须放在 `/api` 之外。
+- **为什么这么久没被测出来（最该记的一条）**：`tests/api.test.ts`、`tests/session.test.ts`、`tests/setup.test.ts` **每一个都在开头设了 `process.env.APP_URL='http://localhost:3000'`**，`.test-data/` 下的验收脚本也全都显式传了 `APP_URL`。这个参数正好短路了出问题的那条回退路径 —— 于是「测试全绿 + 手工验收全过」和「用户打开就报错」可以同时成立。**凡是「只有配了某个环境变量才被覆盖的分支」，验收必须有一条不配的路径。**
+- 改法（不动安全语义）：
+  - 判定改为「跟客户端**实际请求的那个来源**比」：配了 `APP_URL` 就以它为准；没配就用 **Host 头**（`x-forwarded-host` 优先，取逗号前第一段），协议取 `x-forwarded-proto`、没有再看 `request.url`。
+  - 浏览器侧这是自洽的：同源请求的 `Origin` 与 `Host` 必然指向同一个 host:port；跨站攻击者无法伪造 `Host`。所以没有放松。
+  - **有一处反而变严了**：以前拿 `localhost` 的 Origin 去打 `127.0.0.1` 是能过的（因为两边都被规范成 localhost），现在端口/主机名不一致一律 403。端口仍然参与比较。
+  - `isSameOrigin` 去掉第三个参数（`APP_URL` 的覆盖逻辑移到新增的 `requestOrigin(request)` 里），新增 `requestProtocol` / `isSecureRequest`。
+- 顺手修了同一处隐患：`sessionCookie` 原来用 `process.env.APP_URL || request.url` 判断要不要加 `Secure`，而 `request.url` 恒为 `http` —— 也就是**用 https 部署但忘了配 `APP_URL` 时，cookie 永远不会带 `Secure`**。现在会考虑 `x-forwarded-proto`（Caddy 会带）。
+- 回归测试（`tests/security.test.ts` 从 1 条扩到 3 条）：新增「同源判定跟 Host 头走，不跟 request.url 走」，覆盖 127.0.0.1 与 localhost 双向、跨站 Origin、端口不一致、以及配/不配 `APP_URL` 两种模式；另一条覆盖反代 https 下的 `Secure`。
+  - 一个细节：这条测试往 `new Request()` 里塞了 `host` 头。浏览器里 `Host` 是 forbidden request header，Node 的 undici 目前**不**剥离它，但这是实现细节，所以测试开头先断言 `request.headers.get('host')` 真的拿到了值 —— 将来 Node 若开始剥离，测试会直接炸，而不是空转通过。
+- 验收（`.test-data/origin-check.mjs`，**刻意不设 `APP_URL`**，临时库，不碰 `data/`）：
+  - 服务端：伪造来源 403、无 Origin 403（都没放松）。
+  - 真浏览器从 `http://127.0.0.1:3102` 进去：锁图标是「设置站主账号」→ 填两次密码提交 → **弹窗关闭、页面无报错、进入站主态、会话 cookie 180 天且 HttpOnly、「记一笔」入口在**。修复前这一步必定是「请求来源不匹配」。截图 `outputs/origin-fixed-127.png`。
+  - 换 `http://localhost:3102` 进同一台服务：页面正常、锁图标在（cookie 按 host 分开存，所以换 host 是未登录态，符合预期）。
+  - 直接 curl 四种组合复验：`127.0.0.1→127.0.0.1` 放行、`localhost→localhost` 放行、其余组合 403。
+- 整机 `npm test` **45 项 44 通过**（唯一失败仍是预存在的 `backup.test.ts` 本机 `EBUSY`），`tsc` 退出 0，`npm run build` 通过。3000 已用**不带 `APP_URL`** 的方式重启，与正式部署形态一致。

@@ -1,14 +1,14 @@
 import {randomBytes} from 'node:crypto';
 import {getStore} from './store';
-import {isSameOrigin} from './security';
+import {isSameOrigin,isSecureRequest,requestOrigin} from './security';
 
 export class ApiError extends Error {constructor(public status:number,message:string){super(message);}}
 export function json(data:unknown,status=200,extra:Record<string,string>={}){return Response.json(data,{status,headers:{'Cache-Control':'no-store',...extra}});}
 export function tokenFrom(request:Request){return request.headers.get('cookie')?.split(';').map(v=>v.trim()).find(v=>v.startsWith('world-session='))?.slice('world-session='.length)||'';}
 export function isOwner(request:Request){const token=tokenFrom(request);return token.length===64&&getStore().hasSession(token);}
 export function requireOwner(request:Request){if(!isOwner(request))throw new ApiError(401,'请先登录私人空间。');}
-export function requireOrigin(request:Request){if(!isSameOrigin(request.headers.get('origin'),request.url,process.env.APP_URL))throw new ApiError(403,'请求来源不匹配，请从本站重新操作。');}
-export function sessionCookie(request:Request,token:string,maxAge:number){const secure=new URL(process.env.APP_URL||request.url).protocol==='https:';return `world-session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure?'; Secure':''}`;}
+export function requireOrigin(request:Request){if(!isSameOrigin(request.headers.get('origin'),requestOrigin(request)))throw new ApiError(403,'请求来源不匹配，请从本站重新操作。');}
+export function sessionCookie(request:Request,token:string,maxAge:number){const secure=isSecureRequest(request);return `world-session=${token}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${maxAge}${secure?'; Secure':''}`;}
 // 站主登录一次要保持很久 —— 这是自己的私人小屋，不是网银，不该每进一次就重新输密码。
 export const SESSION_MAX_AGE=180*24*60*60;
 // 续期时机：只在剩余寿命掉到一半以下才动手，避免每个请求都写一次库、都重发一次 Set-Cookie。
