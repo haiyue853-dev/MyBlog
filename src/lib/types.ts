@@ -11,6 +11,10 @@ export interface AboutInterest {title:string;description:string;}
 export interface Profile {name:string;bio:string;subtitle:string;avatarId:string|null;accent:string;aboutName?:string;aboutIntro?:string;aboutInterests?:AboutInterest[];aboutWish?:string;}
 export interface SiteStatistics {day:string;sinceDay:string;totalViews:number;totalVisitors:number;todayViews:number;todayVisitors:number;content:{moments:number;collections:number;categories:number;tags:number;likes:number};history:{day:string;views:number;visitors:number}[];}
 export interface IrisEvent {type:string;data:Record<string,unknown>;}
+// 侧边栏个人卡片下面的「联系方式」图标。做法参考参照站 yaronluo.com：
+// 社交入口就一排小圆按钮挂在名字/简介下面，不走大块联系人卡片。
+// 注意这里是公开可见的邮箱，改的时候记得它会进公开仓库。
+export const SITE_CONTACT={email:'2138286174@qq.com',github:'https://github.com/haiyue853-dev'} as const;
 export const DEFAULT_ABOUT_INTERESTS:AboutInterest[]=[
   {title:'游戏 · 快乐时光',description:'永劫无间、CS2。给生活留一点游戏时间。'},
   {title:'音乐 · 循环播放',description:'喜欢 K-pop 音乐，让喜欢的旋律陪着日常。'},
