@@ -26,6 +26,14 @@ test('a fresh install reports itself as unconfigured',async()=>{
   assert.deepEqual(await response.json(),{owner:false,configured:false});
 });
 
+test('public deployment rejects web setup even when its database is empty',async()=>{
+  process.env.DISABLE_WEB_SETUP='1';
+  try{
+    assert.equal((await request('auth/setup','POST',{password:PASSWORD})).status,403);
+    assert.equal(store.getOwner(),null);
+  }finally{delete process.env.DISABLE_WEB_SETUP;}
+});
+
 test('setup refuses cross-origin, short and oversized passwords without creating an owner',async()=>{
   assert.equal((await request('auth/setup','POST',{password:PASSWORD},'','http://bad.example')).status,403);
   assert.equal((await request('auth/setup','POST',{password:'x'.repeat(MIN_PASSWORD_LENGTH-1)})).status,400);

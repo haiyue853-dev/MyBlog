@@ -1,7 +1,53 @@
 import {randomBytes,scryptSync,timingSafeEqual} from 'node:crypto';
+import {isIP} from 'node:net';
+import {runtimeConfig} from './runtime';
+import {SCRYPT_N,SCRYPT_R,SCRYPT_P,SCRYPT_KEYLEN,SCRYPT_MAXMEM,SCRYPT_LEGACY_N} from './types';
 
-export function hashPassword(password:string):string {const salt=randomBytes(16).toString('hex');return `scrypt:${salt}:${scryptSync(password,salt,64).toString('hex')}`;}
-export function verifyPassword(password:string,encoded:string):boolean {try{const [type,salt,hash]=encoded.split(':');if(type!=='scrypt'||!salt||!hash||hash.length!==128)return false;return timingSafeEqual(scryptSync(password,salt,64),Buffer.from(hash,'hex'));}catch{return false;}}
+// 仅部署用 Caddy 能写这个头；web 端口必须只在容器内部开放。
+export function loginClient(request:Request):string{
+  const config=runtimeConfig();if(!config.trustProxy)return 'local';
+  const address=request.headers.get(config.clientIpHeader||'x-little-world-client-ip')||'';
+  return isIP(address)?address:'local';
+}
+
+// 哈希格式：新的是 `scrypt$N$r$p$salt$hash`（带成本参数，向后兼容升级用）；
+// 旧的是 `scrypt:salt:hash`（没有成本参数，按 SCRYPT_LEGACY_N 解读）。两者都能验证。
+export function hashPassword(password:string):string {
+  const salt=randomBytes(16).toString('hex');
+  const hash=scryptSync(password,salt,SCRYPT_KEYLEN,{N:SCRYPT_N,r:SCRYPT_R,p:SCRYPT_P,maxmem:SCRYPT_MAXMEM}).toString('hex');
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt}$${hash}`;
+}
+// 解析两种格式，取出成本参数与盐。返回 null 表示格式不认识。
+export function parseScryptEncoded(encoded:string):{N:number;r:number;p:number;salt:string;hash:string}|null{
+  if(typeof encoded!=='string')return null;
+  if(encoded.startsWith('scrypt$')){
+    const parts=encoded.split('$');
+    // scrypt$N$r$p$salt$hash
+    if(parts.length!==6||parts[0]!=='scrypt')return null;
+    const N=Number(parts[1]),r=Number(parts[2]),p=Number(parts[3]),salt=parts[4],hash=parts[5];
+    if(!Number.isInteger(N)||!Number.isInteger(r)||!Number.isInteger(p)||!/^[a-f0-9]{32}$/.test(salt)||!/^[a-f0-9]{128}$/.test(hash))return null;
+    return {N,r,p,salt,hash};
+  }
+  if(encoded.startsWith('scrypt:')){
+    const parts=encoded.split(':'); // scrypt:salt:hash
+    if(parts.length!==3||parts[0]!=='scrypt')return null;
+    const [,salt,hash]=parts;
+    if(!/^[a-f0-9]{32}$/.test(salt)||!/^[a-f0-9]{128}$/.test(hash))return null;
+    return {N:SCRYPT_LEGACY_N,r:SCRYPT_R,p:SCRYPT_P,salt,hash};
+  }
+  return null;
+}
+// 取出某条已存哈希使用的 N（旧格式回落到 SCRYPT_LEGACY_N）。用于告诉浏览器用多大成本校验。
+export function scryptCostOf(encoded:string):number{return parseScryptEncoded(encoded)?.N??SCRYPT_LEGACY_N;}
+export function verifyPassword(password:string,encoded:string):boolean {
+  let parsed:ReturnType<typeof parseScryptEncoded>;
+  try{parsed=parseScryptEncoded(encoded);}catch{return false;}
+  if(!parsed)return false;
+  try{
+    const candidate=scryptSync(password,parsed.salt,SCRYPT_KEYLEN,{N:parsed.N,r:parsed.r,p:parsed.p,maxmem:SCRYPT_MAXMEM});
+    return timingSafeEqual(candidate,Buffer.from(parsed.hash,'hex'));
+  }catch{return false;}
+}
 export function isSameOrigin(origin:string|null,expected:string|null):boolean {const from=normalizeOrigin(origin);const to=normalizeOrigin(expected);return !!from&&!!to&&from===to;}
 function normalizeOrigin(value:string|null|undefined):string|null{try{return value?new URL(value).origin:null;}catch{return null;}}
 function normalizeProtocol(value:string):string{try{return new URL(value).protocol;}catch{return '';}}
@@ -20,7 +66,7 @@ function firstHeader(request:Request,name:string):string{return (request.headers
 // 换成 Host 之后浏览器侧是自洽的：同源请求的 Origin 与 Host 必然指向同一个 host:port；
 // 跨站攻击者又无法伪造 Host，所以安全性不比原来弱。
 export function requestOrigin(request:Request):string|null{
-  const configured=(process.env.APP_URL||'').trim();
+  const configured=(runtimeConfig().appUrl||'').trim();
   if(configured)return normalizeOrigin(configured);
   const host=firstHeader(request,'x-forwarded-host')||firstHeader(request,'host');
   if(!host)return null;
@@ -34,7 +80,7 @@ export function requestProtocol(request:Request):string{
 }
 // 会话 cookie 要不要带 Secure。APP_URL 配了 https 就算；否则看实际这次请求是不是 https。
 export function isSecureRequest(request:Request):boolean{
-  const configured=(process.env.APP_URL||'').trim();
+  const configured=(runtimeConfig().appUrl||'').trim();
   if(configured&&normalizeProtocol(configured)==='https:')return true;
   return requestProtocol(request)==='https';
 }

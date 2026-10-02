@@ -2,6 +2,18 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 
 const security = await import('../src/lib/security').catch(() => null);
+test('client address trusts only the explicit proxy header when configured',()=>{
+  assert.ok(security);
+  const saved=process.env.TRUST_PROXY;
+  const request=new Request('https://home.example/api/auth/login',{headers:{'x-little-world-client-ip':'192.0.2.1','x-forwarded-for':'192.0.2.2'}});
+  try{
+    delete process.env.TRUST_PROXY;assert.equal(security.loginClient(request),'local');
+    process.env.TRUST_PROXY='1';assert.equal(security.loginClient(request),'192.0.2.1');
+    assert.equal(security.loginClient(new Request(request.url,{headers:{'x-forwarded-for':'192.0.2.2'}})),'local');
+    assert.equal(security.loginClient(new Request(request.url,{headers:{'x-little-world-client-ip':'192.0.2.1, 192.0.2.2'}})),'local');
+    assert.equal(security.loginClient(new Request(request.url,{headers:{'x-little-world-client-ip':'2001:db8::1'}})),'2001:db8::1');
+  }finally{if(saved===undefined)delete process.env.TRUST_PROXY;else process.env.TRUST_PROXY=saved;}
+});
 test('password hash never stores plaintext and rejects the wrong password', () => {
   assert.ok(security, 'security core is not implemented');
   const encoded = security.hashPassword('a-safe-test-password');
@@ -74,4 +86,46 @@ test('uploaded active content cannot be served as an inline image', () => {
   assert.equal(security.imageMime(Buffer.from('<svg onload="alert(1)">')), null);
   assert.equal(security.imageMime(Buffer.from('<html>')), null);
   assert.equal(security.imageMime(Buffer.from([137,80,78,71,13,10,26,10])), 'image/png');
+});
+test('password hashing uses cost-aware format and still verifies legacy hashes', async () => {
+  assert.ok(security, 'security core is not implemented');
+  const {scryptSync}=await import('node:crypto');
+  const salt='b'.repeat(32);
+  const legacy=scryptSync('secret',salt,64).toString('hex');
+  const legacyEncoded=`scrypt:${salt}:${legacy}`;
+  assert.equal(security.verifyPassword('secret',legacyEncoded), true);
+  assert.equal(security.verifyPassword('wrong',legacyEncoded), false);
+  assert.equal(security.scryptCostOf(legacyEncoded), 16384, 'legacy cost falls back to 2^14');
+  const newEncoded=security.hashPassword('secret');
+  assert.equal(security.verifyPassword('secret',newEncoded), true);
+  assert.equal(security.verifyPassword('wrong',newEncoded), false);
+  assert.equal(security.scryptCostOf(newEncoded), 32768, 'new cost is 2^15');
+  assert.equal(security.parseScryptEncoded('garbage'), null);
+});
+test('password migration to Cloudflare keeps the cost-aware cloud format', async () => {
+  assert.ok(security, 'security core is not implemented');
+  const {scryptSync,createHash}=await import('node:crypto');
+  const {migratePassword}=await import('../scripts/export-cloudflare');
+  const salt='c'.repeat(32);
+  const legacy=scryptSync('pw',salt,64).toString('hex');
+  const cloudOld=migratePassword(`scrypt:${salt}:${legacy}`);
+  assert.match(cloudOld,/^scrypt-client-sha256-v1:\d+:[a-f0-9]{32}:[a-f0-9]{64}$/);
+  assert.equal(cloudOld.split(':')[3], createHash('sha256').update(Buffer.from(legacy,'hex')).digest('hex'));
+  const cloudNew=migratePassword(security.hashPassword('pw'));
+  assert.match(cloudNew,/^scrypt-client-sha256-v1:32768:/, 'new local hash migrates at 2^15');
+});
+test('login locks after 5 failures in 15 minutes and clears on success', async () => {
+  const {mkdtempSync}=await import('node:fs');
+  const {tmpdir}=await import('node:os');
+  const {join}=await import('node:path');
+  const {Store}=await import('../src/lib/store');
+  const dir=mkdtempSync(join(tmpdir(),'little-world-lock-'));
+  const store=new Store(dir);
+  const client='203.0.113.7';
+  for(let i=0;i<4;i++)assert.equal(store.reserveLoginVerification(client), true, `attempt ${i+1} should pass`);
+  assert.equal(store.reserveLoginVerification(client), false, '5th failure trips the block');
+  assert.equal(store.loginBlocked(client), true);
+  store.clearLoginFailures(client);
+  assert.equal(store.loginBlocked(client), false, 'clearing resets the lockout');
+  assert.equal(store.reserveLoginVerification(client), true, 'can try again after clearing');
 });

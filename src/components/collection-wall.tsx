@@ -1,8 +1,10 @@
 'use client';
 import {useLayoutEffect,useMemo,useRef,useState} from 'react';
-import {Disc3,Heart,Pencil,Trash2} from 'lucide-react';
+import {Disc3,Pencil,Trash2} from 'lucide-react';
 import {dateLabel,fileUrl} from '@/lib/client';
 import {cardAspect,type Item} from '@/lib/types';
+import type {DailyLike} from '@/lib/types';
+import {DailyHeart} from './daily-likes';
 
 // 把卡片分到尽量等高的几摞里。
 //
@@ -54,10 +56,11 @@ function balanceColumns(items:Item[],columns:number):Item[][]{
 //    免得同一个断点在 CSS 和 JS 各写一遍、日后改一处忘一处。
 //
 // 触屏没有 hover，CSS 里对 `@media(hover:none)` 让按钮和信息条常驻，否则手机上只剩一张没名字的图。
-export function CollectionWall({items,owner,liked,onLike,onOpen,onEdit,onRemove}:{
+export function CollectionWall({items,owner,likes,pendingLikes,onLike,onOpen,onEdit,onRemove}:{
   items:Item[];
   owner:boolean;
-  liked:string[];
+  likes:Record<string,DailyLike>;
+  pendingLikes:string[];
   onLike:(id:string)=>void;
   onOpen:(item:Item)=>void;
   onEdit:(item:Item)=>void;
@@ -83,7 +86,7 @@ export function CollectionWall({items,owner,liked,onLike,onOpen,onEdit,onRemove}
         </button>
         <span className="poster-badge">{item.category||'收藏'}</span>
         <div className="poster-tools">
-          <button className="poster-tool" onClick={()=>onLike(item.id)} aria-pressed={liked.includes(item.id)} aria-label={liked.includes(item.id)?`取消喜欢 ${item.title}`:`喜欢 ${item.title}`}><Heart size={14}/></button>
+          <DailyHeart className="poster-tool poster-like" title={item.title} like={likes[item.id]} pending={pendingLikes.includes(item.id)} onClick={()=>onLike(item.id)}/>
           {owner&&<><button className="poster-tool" onClick={()=>onEdit(item)} aria-label={`编辑 ${item.title}`}><Pencil size={13}/></button><button className="poster-tool" onClick={()=>onRemove(item)} aria-label={`删除 ${item.title}`}><Trash2 size={13}/></button></>}
         </div>
         <div className="poster-veil">

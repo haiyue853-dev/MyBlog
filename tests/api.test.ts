@@ -64,3 +64,35 @@ test('offline Iris returns a useful 503 while the private file cabinet still wor
   finally{delete process.env.IRIS_BASE_URL;}
 });
 test('logout invalidates the stored session',async()=>{assert.equal((await request('auth/logout','POST',undefined,cookie)).status,200);assert.equal((await request('files','GET',undefined,cookie)).status,401);});
+
+test('trusted client limits prevent one attacker from blocking the owner and bound request bursts',async()=>{
+  process.env.TRUST_PROXY='1';
+  const login=(client:string,password:string)=>handler(new Request('http://localhost:3000/api/auth/login',{method:'POST',headers:{origin:'http://localhost:3000','content-type':'application/json','x-little-world-client-ip':client},body:JSON.stringify({password})}),{params:Promise.resolve({path:['auth','login']})});
+  try{
+    // 阈值现在是 5：前 4 次错密码照常 401，第 5 次触发封禁并写入封禁行，之后一律 429。
+    for(let i=0;i<4;i++)assert.equal((await login('192.0.2.1','wrong')).status,401);
+    assert.equal((await login('192.0.2.1','wrong')).status,429);
+    assert.equal((await login('192.0.2.1','test-owner-password')).status,429);
+    assert.equal((await login('192.0.2.2','test-owner-password')).status,200);
+    for(let i=0;i<29;i++)assert.equal((await login('192.0.2.2','test-owner-password')).status,200);
+    assert.equal((await login('192.0.2.2','test-owner-password')).status,429);
+    assert.equal((await login('192.0.2.3','x'.repeat(9000))).status,413);
+  }finally{delete process.env.TRUST_PROXY;}
+});
+
+test('concurrent slow login bodies cannot bypass the five-failure limit',async()=>{
+  process.env.TRUST_PROXY='1';
+  let release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;});
+  try{
+    const pending=Array.from({length:30},()=>{
+      const body=new ReadableStream<Uint8Array>({async start(controller){await gate;controller.enqueue(new TextEncoder().encode(JSON.stringify({password:'wrong'})));controller.close();}});
+      const init={method:'POST',headers:{origin:'http://localhost:3000','content-type':'application/json','x-little-world-client-ip':'192.0.2.4'},body,duplex:'half'} as RequestInit&{duplex:string};
+      return handler(new Request('http://localhost:3000/api/auth/login',init),{params:Promise.resolve({path:['auth','login']})});
+    });
+    await new Promise<void>(resolve=>setImmediate(resolve));release();
+    const statuses=(await Promise.all(pending)).map(response=>response.status);
+    // 30 个并发里只有前 4 个拿到 401（第 5 个触发封禁），其余 26 个全被 429 挡住。
+    assert.equal(statuses.filter(status=>status===401).length,4);
+    assert.equal(statuses.filter(status=>status===429).length,26);
+  }finally{release();delete process.env.TRUST_PROXY;}
+});

@@ -1,0 +1,10 @@
+CREATE TABLE IF NOT EXISTS items(id TEXT PRIMARY KEY,kind TEXT NOT NULL,visibility TEXT NOT NULL,asset_id TEXT,data TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS items_visibility ON items(visibility);
+CREATE INDEX IF NOT EXISTS items_asset_visibility ON items(asset_id,visibility);
+CREATE TABLE IF NOT EXISTS assets(id TEXT PRIMARY KEY,data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS owner(id INTEGER PRIMARY KEY CHECK(id=1),name TEXT NOT NULL,password TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,expires INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS sessions_expires ON sessions(expires);
+CREATE TABLE IF NOT EXISTS auth_limits(key TEXT PRIMARY KEY,count INTEGER NOT NULL,started INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS auth_limits_started ON auth_limits(started);

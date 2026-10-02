@@ -444,3 +444,109 @@
   - 六个页面全部通过，顶部各截一张图：`outputs/section-home.png` / `section-life.png` / `section-collection.png` / `section-files.png` / `section-iris.png` / `section-settings.png`。
 - **断言踩的坑（值得记）**：第一版用 `document.body.innerText.includes('把喜欢')` 判断「主页元素还在不在」，结果五个栏目全部误报成「没改干净」—— 因为**空状态文案里那句「……把喜欢的，都收进来。」**也含这三个字。改成直接读 `h1` 元素本身的文本（`textContent.replace(/\s+/g,'')==='把喜欢，慢慢收藏。'`）与 `.welcome-subtitle` 是否存在，才是有意义的断言。**拿整页文本做包含判断，很容易被别处的巧合文案骗到。**
 - `npm test` **45 项 44 通过**（唯一失败仍是预存在的 `backup.test.ts` 本机 `EBUSY`），`tsc` 与 `npm run build` 均退出 0。
+
+
+## 后续：栏目切换从透明逐渐显现（2026-10-02）
+
+- 用户要求每次切换页面从空慢慢显现，可参考 https://yaronluo.com/。参考站页面可读，动态浏览检查超时；最终按用户描述实现。
+- 将原先只有正文的 400ms 入场替换为统一的 page-reveal：栏目头/主页 Hero、侧栏、正文、页脚使用透明度 0→1 与向上归位 16px，620ms，后三层延迟 60/120/180ms。顶栏和背景持续保留。
+- 展示区域按栏目更换 React key；各区域 key 加独立前缀，避免兄弟节点使用相同 key 后残留旧节点。浏览器返回改变 view 也会重播；搜索和数据更新不重新挂载展示区域。
+- 动画只在 motion-on 生效，沿用现有动效开关与系统偏好的优先级；关闭时 opacity=1、animation=none。移除旧 section-enter 动画，避免正文两次叠加。
+- 浏览器验收使用 3103 临时库和测试账号，没有修改正式资料：六页均从透明开始；逐次读计算样式确认透明度升高；1 秒后四层 opacity=1；连续切换仅有一份栏目头、侧栏、正文；返回重播；搜索不重播；关闭动效立即显示。结果 .test-data/page-reveal-check.json，截图 outputs/page-reveal-preview.png。
+- npm test 45/45 通过，生产构建与 TypeScript 检查通过；3000 正式预览已重启。
+
+## 后续：头像裁剪、文案与部署安全（2026-10-02）
+
+- 用户要求头像选图后调整位置和缩放，移除“快乐追星”和收藏馆“一张专辑”；完成后开始安全加固，比较便宜部署方案。用户明确先只部署小屋，Iris 后续接。
+- 头像新增独立裁剪弹窗，圆形预览、Pointer Events 拖动、100%–400% 缩放、方向键、重置与取消。预览与 canvas 导出使用同一 source-pixel crop；边界夹紧避免空白，导出 512×512 PNG。确认上传到布置草稿，保存布置才公开；取消不上传；GIF 转静态。通用 dialog 的 Escape 经 onClose 决定是否关闭，避免上传中默认关闭弹窗。
+- 在 3103 隔离数据库用 900×600 三色测试图实测鼠标拖动到红色区域，导出后 sharp 验证 512×512 且 RGB 均为 196/91/100；匿名读取保存前 401、保存后 200。手机 390×844 布局裁剪框 250×250、无横向溢出、确认按钮完整；CSP 下重复选择、缩放、键盘与保存仍正常。截图 outputs/avatar-crop-preview.png、avatar-crop-mobile.png；没有修改正式个人资料。
+- 安全审计发现全局失败锁可能被攻击者用于阻止站主登录。改为受控 Caddy 地址的失败计数（10 次/15min）和请求限流（30 次/min），正文 8KB，SQLite 持久化并清理过期记录。Caddy 覆盖专用 IP 头，Compose 内部 3000，显式 TRUST_PROXY=1；本地不信任代理头。
+- 独立代码审查复现并发慢正文绕过失败检查：30 个请求可一起通过读取前检查。新增延迟正文回归先观察 30 个 401，再在正文读取后重新检查，使其变为 10 个 401 + 20 个 429；修复已通过。
+- 公开部署关闭网页 setup；Docker 启动前只读验证 HTTPS 来源和有效 scrypt 账号，缺少数据拒绝启动且不创建空库。应用 node 用户、禁新增权限、cap_drop ALL、进程上限 128；构建忽略环境文件、数据、测试和截图。
+- 根 HTML 使用随机 nonce CSP；现有 React 主题/位置保留行内样式，生产脚本不放行 unsafe-inline/eval；API 附件保持 sandbox。增加 Permissions-Policy，Caddy HSTS、22MB 请求限制。生产 HTTP 两端口检查9个脚本nonce一致、每次nonce变化、HTML no-store；附件CSP未被覆盖，浏览器无控制台错误。
+- npm 官方源生产依赖审计 0 个已知漏洞；默认 npmmirror 审计接口不支持，本轮显式指定官方源。完整 npm test 56/56、typecheck、build 通过。
+- 最后一次生产构建后，实际 3103 HTTP 服务重复并发慢正文验收：10 个错误密码响应 401、20 个请求响应 429；另一地址正确登录 200。3000 预览 200、脚本 nonce 匹配。结果 .test-data/security-live-check.json。
+- 新增 docs/安全与部署建议.md，列出香港 38 元/月、海外 30 元/月 2核2G等官方价格，明确跨境网络限制、ICP与公安备案区别以及云端验收边界；没有购买、部署或接入外部防护。当前机器无 Docker/Caddy，真实容器、证书、防火墙、恢复仍待云端验证。
+
+## 后续：直接点击头像与收藏入口留白（2026-10-02）
+
+- 按用户截图移除布置页独立选图按钮，头像本身改为带无障碍名称的圆形按钮，通过 ref 打开隐藏文件输入；保留原裁剪、上传与保存流程。
+- 收藏入口缺少基础布局规则，浏览器复现桌面 display:block、padding:0。补齐 flex 横排、24px 留白与间距；手机使用双列 grid、20px 留白，入口按钮与文案左侧对齐。
+- 生产构建与类型检查通过。3103 隔离库实测头像 Enter 打开选图、选择测试照片进入裁剪、取消正常；桌面卡片图标距边约 25px，390px 手机左侧约 21px，无横向溢出、文字和按钮对齐。浏览器无错误；3000 已重建重启。截图 outputs/avatar-click-preview.png、collection-invitation-fixed.png、collection-invitation-mobile-fixed.png。
+
+## 后续：分类建议菜单统一主题（2026-10-02）
+
+- 用户指出分类输入框的原生 datalist 弹层灰白样式不符合主题。仅替换生活/收藏编辑器的分类建议，不改变分类数据或其他控件。
+- 新增 category-input.tsx：可自由输入的 combobox，输入时过滤、箭头展开全部建议、鼠标选择、方向键/Enter、Esc 仅收起建议、Tab 离开收起；保留 40 字限制。根据弹窗内可用空间选择向上或向下展开，限制列表高度。
+- 奶油背景、柔粉选中与悬停、15px 圆角及柔和阴影。修正外层 label 默认激活造成点击选项后再次打开的问题，选项点击取消默认行为。
+- 类型检查与最后生产构建通过。隔离库浏览器验证选择电影后正确收起、方向键选择音乐、输入旅行日记、输入“动”只显示动漫、Esc 保留编辑弹窗、Tab 收起；390×844 菜单完全位于滚动区内、无横向溢出、选择后收起，控制台无错误。截图 outputs/category-menu-themed.png、category-menu-mobile.png。正式 3000 预览已更新，未写入正式个人资料。
+
+## 后续：完整 Cloudflare 适配与部署准备（2026-10-02）
+
+- 用户从 Drop 展示包改为完整 Workers 版本，随后授权实际部署并完成 CLI OAuth。
+- API 复用原权限与校验逻辑，以请求级 SiteStore/配置接入 Node SQLite 与 CloudStore D1/R2。Node 文件读写下沉至存储，Worker 不包含 node:sqlite 或 node:fs。D1 对附件累计尺寸做原子检查，并发密码校验前原子预留失败预算。
+- 审查指出 workerd 的异步 scrypt 仍占当前 CPU；改为浏览器 noble scryptAsync 保留旧参数和 ASCII 盐，Cloudflare 保存 SHA256(K)、常量时间对比。两种 Unicode 密码与 Node 结果完全一致，验证值不能直接登录；不降低密码强度、不写本地存储。
+- 导入 SQL 按 7000 Unicode codepoint 分块，单语句小于100KB，首块替换后追加，重复初始导入保持长文本完全一致；账号最后插入，复跑检测已有账号避免重置云端数据。公开资源与账号/记录/文件迁移资料分离，忽略旧会话和 Iris 配置。
+- 本地 workerd 验证 bootstrap 公开范围、密码登录、HttpOnly/Secure cookie、来源拒绝、R2私有附件、头像公开、上传/下载/删除、使用中头像不可删、未接 Iris 503、20并发10次401/10次429、其他IP登录。58项回归通过。浏览器3104验证原密码、头像缩放上传/保存、生活记录分类音乐并私密保存、390px无溢出和坏图、退出隐藏测试记录，无控制台错误。
+- Next构建/typecheck/Wrangler deploy dry-run成功；生产audit0。独立审查修复R2 bucket list的provideConfig:false：每个命令显式设置已选CLOUDFLARE_ACCOUNT_ID。
+- 真实执行部署脚本已创建 D1，随后 R2 API 返回10042；用户已选择继续R2开通。尚未迁移或发布，后续续用现目录与数据库，不能标记为上线完成。
+
+## 后续：当前 Cloudflare 账号实际发布（2026-10-02）
+
+- R2 开通并重新 OAuth 后发现账号变化，脚本按保护规则停止。用户明确选择当前账号后，备份旧绑定并在新账号创建 D1/R2，迁移原密码校验、1 条记录和头像，成功发布 little-world-edb34d；控制面确认版本 c259ef19-885e-490d-95f8-48f43c616d21 100% 流量。免费网址 https://little-world-edb34d.y-log--loudflare--ull-20261002.workers.dev/ 。旧账号空 D1 未删除，未升级 Workers 套餐。
+- 真实云端 D1 查询 owner/items/assets 数量各为 1；通过 R2 CLI 下载头像，312735 B 且 SHA-256 与原件一致；r2.dev 公共访问关闭。
+- 本机 Node fetch 连接超时，浏览器 ERR_SSL_VERSION_OR_CIPHER_MISMATCH，系统 DNS 与另一 HTTPS DNS 返回非 Cloudflare 异常地址；指定 Cloudflare IP 且保留 TLS 验证的请求遭连接重置。Wrangler 远程调试启动成功但请求仍超时，已停止临时调试进程。因此公开网址的登录/编辑/20 MiB 上传尚未验收，没有声称其通过，未改系统网络配置。用户选择保留免费域名。
+- 保留 .test-data/cloudflare-live-check.mjs 供网络可达后执行，凭据只存在进程内，验收使用有唯一标记的私密记录和文件并清理，避免修改真实用户内容。部署包按当前账号的实际编号更新，排除 .wrangler 缓存和原账号备份。
+
+## 后续：实际域名与代理排查、云端验收（2026-10-02）
+
+- 用户询问访问失败，核对部署版本、静态头规则和绑定仍正常。通过 CLI 已有授权只读查询 Cloudflare API，确认当前账号子域名变为 yuehaiworld，脚本的 workers.dev enabled=true；有效网址 https://little-world-edb34d.yuehaiworld.workers.dev/ 。旧发布日志网址已失效，不应继续发给用户。
+- 新域名直连解析为异常地址，curl/Node 超时。只读检查 Windows 网络设置，发现原有系统代理已启用；原先 Node/curl 直连验收没有使用代理。通过现有代理发送请求，保留 HTTPS 证书校验，主页及 auth API 200，未修改注册表、DNS 或代理规则。
+- 执行 cloudflare-live-check.mjs 对实际公开网址验收：原账号登录、HttpOnly/Secure 会话、私人记录创建/编辑、CSRF 403、迁移头像公开可读、迁移 SQL/配置404、私人文件匿名401、64 B 和 20971520 B 上传/下载完全一致、未接 Iris503、退出失效全部通过。专用测试条目/文件清理完成；真实 D1 再查询 owner/items/assets各1，sessions0。没有更改用户记录、头像或密码。
+- 更新中文状态说明和交付包的当前网址，标注直连网络问题及浏览器需使用既有代理；免费域名保留，不购买域名或升级 Workers。
+
+## 后续：缩短免费网址（2026-10-02）
+
+- 说明 workers.dev 格式要求保留应用名，用户选择 home.yuehaiworld.workers.dev。通过官方 PATCH `/accounts/{account}/workers/workers/{worker_id}` 仅更新 name，原地改名为 home；不可变 Worker ID 与生产版本不变，没有新建另一个应用或重导入用户数据。
+- 本机部署包 wrangler.jsonc 的 name 同步 home，Cloudflare API 列表确认仅同一 Worker、免费域名入口启用；最终网址 https://home.yuehaiworld.workers.dev/ 。新网址重新完成生产 API 登录、编辑、CSRF、64 B/20 MiB 私人上传下载和退出清理验收；原代理/TLS 校验保持。
+- 更新中文说明、状态文档与 ZIP，未来部署沿用 home 和原 D1/R2 绑定，避免恢复旧应用名。
+
+## 后续：本地人物收藏与更新教程（2026-10-02）
+
+- 只读取用户指定 MobileFile 的人物目录，177 张图片去除 5 张完全重复文件；最终导入 172 张公开本地收藏（Jennie 117、Jisoo 36、Karina 10、ROSÉ 9），一图一卡、原图比例、首屏交错，0 跳过。
+- 用户明确允许本地转换 3 张伪装 JPG 的 HEIC，使用既有 FFmpeg 创建 JPEG 副本。原素材不变；导入前备份 .test-data/collection-before-20261002，manifest 在 outputs/collection-photo-import-20261002.json，均不提交或上传。
+- 校验 172 个本地 HTTP 图片为 200，MIME 和 SHA-256 对应原件/转换副本；原账号、个人设置及已有记录保持。浏览器四个人物筛选正确、无坏图或横向溢出，截图 outputs/collection-photos-local-preview.png。
+- 新增 update:cloudflare 命令；只刷新已部署包的代码和幂等建表 SQL，保留 config/state/private-import 的原字节，测试先失败再通过。发布时先建缺失表，再 Wrangler deploy，不运行首次迁移或本地数据导出。教程明确后续更新无需打包或 Drop，代码发布与本地内容同步分开。
+
+## 后续：卡片每日点赞（2026-10-02）
+
+- 用户新增“每个用户每天一次并记录”，沿用现有心心并常驻显示总数；无注册的访客通过服务端 HttpOnly Cookie 按浏览器识别，日期由服务器按北京时间确定。再次点击不取消；清除 Cookie/换浏览器视为新访客，未声称实名唯一。
+- SQLite / D1 新建 item_like_visits（每个访客每张卡最近日期）及 item_like_counts（累计数），唯一约束 + INSERT/UPDATE 触发器原子更新，只接受严格更新的日期，跨日延迟旧请求不能重置日期。删除卡片级联清理；GET 批量最多 80，私人范围按现有权限，写操作需同源且限速。
+- 新增本地 API 测试先确认 404 后实现通过；验证两访客、同日/12 并发去重、北京时间午夜、次日、重启、跨站403、私人隐藏、缺 Cookie400、限流429与删除清理。真实 workerd/D1 16 并发仅增加一次，第二访客累计2。
+- 最终 typecheck、66 项测试、Next 生产构建、更新包编译与 Wrangler dry-run 通过。3000 生产预览已重启，浏览器实际点击累计加1并显示当天实心，刷新和人物筛选后保留。446px 窄屏无横向溢出，全部9张图可读，心心均在卡片内且与分类标签至少留75px；无控制台错误。详情可打开/关闭。用户并行试用的点赞保留，未清空计数。截图 outputs/collection-daily-likes-preview.png。
+- 按代码审查技能由既有 security_review 做一次只读审查，发现旧日 POST 延迟响应可覆盖新日 GET 状态。已用 snapshot 绑定日期和状态，拒绝旧日覆盖、跨日 GET 批次重读；纯函数回归先复现错误再通过，另防止同日旧 GET 抹掉刚完成的点赞。审查其余范围无阻塞项。Wrangler 本地完整 schema 文件执行及复跑均14条成功，未访问远程 D1。
+- 当前未 --deploy，未上传新增照片，不修改线上数据或 DNS/代理。针对用户加速器疑问再次实测线上网址：直连5秒超时，既有代理 HTTPS200。仅说明当前网络结果，没有推断所有网络必须代理。
+
+## 后续：手机线上访问诊断（2026-10-02）
+
+- 用户确认手机打不开的是线上 home.yuehaiworld.workers.dev，且没有开启加速器。保留本地只监听127.0.0.1的设置，未调整 LAN 或防火墙。
+- 再次对照 HTTPS：本机直连5秒超时，现有代理200。直接使用已缓存 CLI Token 查询控制面先收到401；由 Wrangler 自动续期已有 OAuth 后，再查 API 成功，当前 home 免费公开入口 enabled=true，网址正确。没有启动新的登录授权流程。
+- 结论仅限已实测网络：站点公开入口正常，手机可能遇到默认域名直连可达性问题；没有直接测试手机，不声称已修好手机。给出手机系统浏览器、Wi-Fi/移动数据对照、已有代理全局模式测试，以及自有域名接入/绑定步骤。未购买域名、变更真实 Cloudflare 配置或上传本地内容。
+
+## 后续：发布人物收藏和每日点赞（2026-10-02）
+
+- 用户决定先搁置手机直连问题，并明确要求“现在先把这些上传吧”。按既有授权账号和原 home / D1 / 私有 R2 发布，未购买域名、调整代理或升级套餐。
+- 发布前重新执行 typecheck、npm test，66 项全部通过；CLI 账号与部署配置匹配。读取实际云端数据备份至 backups/cloudflare-before-photos-20261002，原有条目 0、附件 1、用户会话 1。保存应用表、SQL 结构、R2 原头像；先用内存 SQLite 验证增量 SQL 重放不会覆盖原数据或重复插入。
+- 实际执行 npm run update:cloudflare -- --deploy，远程幂等结构导入 14 条成功，新代码版本 f6accec2-23ab-413b-a2fe-f67811400833。Worker 名、账号、D1/R2 绑定和部署状态文件字节保持；没有运行 private-import/data.sql。
+- 只同步原本地导入 manifest 的 172 个收藏与附件（Jennie 117、Jisoo 36、Karina 10、ROSÉ 9，共 153461703 字节），先上传文件后插入记录，冲突时拒绝覆盖。没有同步本地测试点赞。批量上传发现 Node 内置 fetch 与项目 ProxyAgent 的 Buffer 请求兼容问题，通过同库 fetch 对照定位并修复操作脚本；未修改产品代码。
+- 通过既有代理核验真实线上 HTML200、JS/CSS 与新构建摘要一致、全部172张匿名图片200且 MIME/SHA-256对应原件；原密码登录成功，Secure/HttpOnly、来源拒绝、私人内容权限保持。专用私密卡片的同访客8并发仅累计一次，第二访客累计2，刷新读取保留；之后删除测试卡片及其点赞并退出验收会话。
+- 最终 D1 有172张收藏、173个附件，原账号、设置、头像原件与已有用户会话保留。SQL结果比较遇到SQLite返回无原型对象与HTTP普通对象的差别，规范化后只读复核通过，未再写云端数据。报告 outputs/cloudflare-photos-live-check-20261002.json 和 outputs/cloudflare-photo-sync-20261002.json。
+- 线上浏览器导航本次超时，未取得线上截图；验收证据为实际 HTTPS/API 与全量原件校验，本地视觉截图继续保留。线上收藏馆标签已请求在 Codex 打开（queued）。没有声称解决手机不开加速器访问的问题。
+
+## 后续：关于我、统计与素材迁移，本地状态（2026-10-02）
+
+- 已实现关于我及站主编辑；用户兴趣为永劫无间、CS2、K-pop音乐、韩剧、仙侠国漫、K-pop短视频剪辑。隔离3105库完成编辑、增删兴趣、保存和刷新保留，未修改正式个人设置。
+- 新增公开stats接口、SQLite/D1原子PV/UV计数、事件去重及公开内容汇总；72项全量测试通过。真实workerd/D1包含16并发重放去重及不同事件计数。关于我/统计桌面及手机预览已检查。
+- 用户明确批准迁移旧YOcean站并保留40/70/45/20元价格。读取旧库14a6fcca9f579255c4b54535da50fee42657b819，将18张公开原件复制到public/editing-materials，8,756,885字节；原库不改。Next start、Docker和Cloudflare编译携带公开文件。新增打包测试先失败后通过，逐文件源/本地/Cloud包/HTTP摘要一致。
+- 三图集循环切换、大图/Esc、二维码及复制、返回与公开统计接入已验收；320/360/480页面无整体横向溢出，768导航胶囊边缘问题通过820断点修正。聚焦审查发现纵向拖动误开Modal，真实浏览器先复现再修复；最新Next构建通过。**复验已完成**：该修正后的交互用 Playwright 可信事件在真实浏览器复验 6/6 通过、0 页面错误（纵向/斜向不误开、横向切图 1/4→2/4、点击打开、Esc 关闭、820px 导航无横向溢出）；携带修正的更新包 `npm run update:cloudflare` 重新准备、`wrangler deploy --dry-run` 再次通过（25 个资源、D1/R2/Assets 绑定齐全）。均未上传或发布。
+- 用户要求立即输出状态文档，已优先更新docs/项目状态总结.md，包含已完成、结构、参数、问题、下一步五节，明确新模块本地完成、未发布。当前没有--deploy，没有写远程D1、上传R2、改网络、提交或推送；线上仍为f6accec2-23ab-413b-a2fe-f67811400833。

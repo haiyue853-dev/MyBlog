@@ -6,5 +6,10 @@ backups
 .test-data
 .env
 .env.local
+.env.*
+!.env.example
+outputs
+.workbuddy
+.superpowers
 *.log
 test-results

@@ -1,6 +1,11 @@
 {$SITE_DOMAIN} {
     encode zstd gzip
+    header Strict-Transport-Security "max-age=31536000"
+    request_body {
+        max_size 22MB
+    }
     reverse_proxy web:3000 {
+        header_up X-Little-World-Client-IP {remote_host}
         flush_interval -1
     }
 }
