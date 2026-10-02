@@ -1,7 +1,7 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import type {Store} from './store';
 
-type Methods='listItems'|'getItem'|'saveItem'|'deleteItem'|'getLikes'|'addDailyLike'|'takeLikeAttempt'|'recordVisit'|'getStatistics'|'takeStatisticsAttempt'|'addAsset'|'getAsset'|'listAssets'|'deleteAsset'|'isPublicAsset'|'assetInUse'|'getProfile'|'saveProfile'|'getOwner'|'setOwner'|'updateOwnerPassword'|'createSession'|'hasSession'|'sessionExpires'|'extendSession'|'deleteSession'|'loginBlocked'|'recordLoginFailure'|'clearLoginFailures'|'takeLoginAttempt'|'reserveLoginVerification'|'readAsset'|'writeAsset'|'removeAsset';
+type Methods='listItems'|'getItem'|'saveItem'|'deleteItem'|'getLikes'|'addDailyLike'|'takeLikeAttempt'|'recordVisit'|'getStatistics'|'takeStatisticsAttempt'|'addAsset'|'getAsset'|'listAssets'|'deleteAsset'|'isPublicAsset'|'assetInUse'|'listUnusedAssets'|'getProfile'|'saveProfile'|'getOwner'|'setOwner'|'updateOwnerPassword'|'createSession'|'hasSession'|'sessionExpires'|'extendSession'|'deleteSession'|'loginBlocked'|'recordLoginFailure'|'clearLoginFailures'|'takeLoginAttempt'|'reserveLoginVerification'|'readAsset'|'writeAsset'|'removeAsset';
 export type SiteStore={ [K in Methods]:(...args:Parameters<Store[K]>)=>ReturnType<Store[K]>|Promise<Awaited<ReturnType<Store[K]>>> };
 export interface SiteConfig {appUrl?:string;disableWebSetup?:boolean;trustProxy?:boolean;clientIpHeader?:string;irisBaseUrl?:string;irisApiToken?:string;verifyPassword?:(password:string,encoded:string)=>Promise<boolean>;}
 const requests=new AsyncLocalStorage<{store:SiteStore;config:SiteConfig}>();

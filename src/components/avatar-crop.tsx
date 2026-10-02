@@ -5,6 +5,10 @@ import {avatarCrop,type AvatarCenter} from '@/lib/avatar-crop';
 import {errorMessage} from '@/lib/client';
 import {Modal} from './modal';
 
+function toBlob(canvas:HTMLCanvasElement,mime:string,quality?:number){
+  return new Promise<Blob|null>(resolve=>canvas.toBlob(resolve,mime,quality));
+}
+
 export function AvatarCrop({file,onClose,onConfirm}:{file:File;onClose:()=>void;onConfirm:(file:File)=>Promise<void>}){
   const [url,setUrl]=useState('');
   const [dimensions,setDimensions]=useState<{width:number;height:number}|null>(null);
@@ -44,8 +48,12 @@ export function AvatarCrop({file,onClose,onConfirm}:{file:File;onClose:()=>void;
       const canvas=document.createElement('canvas');canvas.width=512;canvas.height=512;
       const context=canvas.getContext('2d');if(!context)throw new Error('图片处理失败，请重新选择照片。');
       context.drawImage(image.current,crop.x,crop.y,crop.size,crop.size,0,0,512,512);
-      const blob=await new Promise<Blob>((resolve,reject)=>canvas.toBlob(result=>result?resolve(result):reject(new Error('无法保存这张照片，请换一张重试。')),'image/png'));
-      await onConfirm(new File([blob],`${file.name.replace(/\.[^.]+$/,'')||'头像'}-avatar.png`,{type:'image/png'}));
+      // 头像最后只显示成一枚小圆图，512×512 已经绰绰有余；
+      // 存成 WebP 比 PNG 小一个数量级，编不出来再退回 PNG。
+      const encoded=await toBlob(canvas,'image/webp',0.85)??await toBlob(canvas,'image/png');
+      if(!encoded)throw new Error('无法保存这张照片，请换一张重试。');
+      const suffix=encoded.type==='image/webp'?'webp':'png';
+      await onConfirm(new File([encoded],`${file.name.replace(/\.[^.]+$/,'')||'头像'}-avatar.${suffix}`,{type:encoded.type}));
     }catch(error){setError(errorMessage(error));}finally{setSaving(false);}
   }
   return <Modal title="调整头像" onClose={()=>{if(!saving)onClose();}}>

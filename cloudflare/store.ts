@@ -53,6 +53,12 @@ export class CloudStore implements SiteStore {
   async deleteAsset(id:string){return (await this.db.prepare('DELETE FROM assets WHERE id=?').bind(id).run()).meta.changes>0;}
   async isPublicAsset(id:string){return (await this.getProfile()).avatarId===id||!!await this.db.prepare("SELECT id FROM items WHERE asset_id=? AND visibility='public' LIMIT 1").bind(id).first();}
   async assetInUse(id:string){return (await this.getProfile()).avatarId===id||!!await this.db.prepare('SELECT id FROM items WHERE asset_id=? LIMIT 1').bind(id).first();}
+  async listUnusedAssets():Promise<Asset[]>{
+    const avatar=(await this.getProfile()).avatarId;
+    const rows=await this.db.prepare('SELECT asset_id AS id FROM items WHERE asset_id IS NOT NULL').all<{id:string}>();
+    const used=new Set(rows.results.map(row=>String(row.id)));
+    return (await this.listAssets()).filter(asset=>asset.mime.startsWith('image/')&&asset.id!==avatar&&!used.has(asset.id));
+  }
   async readAsset(id:string){const object=await this.files.get(id);if(!object)throw new ApiError(404,'文件不存在。');return Buffer.from(await object.arrayBuffer());}
   async writeAsset(id:string,content:Buffer){await this.files.put(id,content);}
   async removeAsset(id:string){await this.files.delete(id);}

@@ -12,7 +12,8 @@ try{
   if(!existsSync(filename))throw new Error('数据库不存在，请先在本地设置站主账号，再迁移完整数据目录。');
   database=new DatabaseSync(filename,{readOnly:true});
   const owner=database.prepare('SELECT password FROM owner WHERE id=1').get();
-  if(!owner||!/^scrypt:[a-f0-9]{32}:[a-f0-9]{128}$/.test(String(owner.password)))throw new Error('缺少有效站主账号，请先在本地运行 npm run setup-owner，再迁移完整数据目录。');
+  // 兼容旧格式与登录时自动升级的成本参数格式。
+  if(!owner||!/^scrypt(?:\$[1-9]\d*\$[1-9]\d*\$[1-9]\d*\$[a-f0-9]{32}\$|:[a-f0-9]{32}:)[a-f0-9]{128}$/.test(String(owner.password)))throw new Error('缺少有效站主账号，请先在本地运行 npm run setup-owner，再迁移完整数据目录。');
   console.log('部署检查通过：HTTPS 来源与站主账号已就绪。');
 }catch(error){
   console.error(`[deployment] 无法启动公开网站：${error instanceof Error?error.message:'数据库或站主账号检查失败。'}`);

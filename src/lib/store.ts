@@ -60,6 +60,13 @@ export class Store {
   async removeAsset(id:string){await unlink(join(this.directory,'files',id)).catch(error=>{if(error.code!=='ENOENT')throw error;});}
   isPublicAsset(id:string):boolean{return this.getProfile().avatarId===id||!!this.db.prepare('SELECT id FROM items WHERE asset_id=? AND visibility=\'public\' LIMIT 1').get(id);}
   assetInUse(id:string):boolean{return this.getProfile().avatarId===id||!!this.db.prepare('SELECT id FROM items WHERE asset_id=? LIMIT 1').get(id);}
+  // 换了配图之后，旧图不会自己消失（删的是条目指向，不是文件），攒久了就是一堆没人引用的孤儿。
+  // 这里一次性把「正在被用」的 id 捞出来，剩下的都是可以安全清掉的。
+  listUnusedAssets():Asset[]{
+    const avatar=this.getProfile().avatarId;
+    const used=new Set((this.db.prepare('SELECT asset_id AS id FROM items WHERE asset_id IS NOT NULL').all() as {id:string}[]).map(row=>String(row.id)));
+    return this.listAssets().filter(asset=>asset.mime.startsWith('image/')&&asset.id!==avatar&&!used.has(asset.id));
+  }
   getProfile():Profile{const row=this.db.prepare('SELECT data FROM settings WHERE key=\'profile\'').get();return row?{...DEFAULT_PROFILE,...JSON.parse(String(row.data))}:{...DEFAULT_PROFILE};}
   saveProfile(profile:Profile){this.db.prepare('INSERT INTO settings(key,data) VALUES(\'profile\',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run(JSON.stringify(profile));return profile;}
   getOwner():{name:string;password:string}|null{const row=this.db.prepare('SELECT name,password FROM owner WHERE id=1').get();return row?{name:String(row.name),password:String(row.password)}:null;}

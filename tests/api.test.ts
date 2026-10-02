@@ -13,7 +13,7 @@ const store=getStore();store.setOwner('测试站主',hashPassword('test-owner-pa
 after(()=>{store.close();rmSync(directory,{recursive:true,force:true});});
 async function request(path:string,method='GET',body?:unknown,cookie='',origin:string|null='http://localhost:3000'){
   const headers:Record<string,string>={};if(cookie)headers.cookie=cookie;if(origin)headers.origin=origin;if(body&&! (body instanceof FormData))headers['content-type']='application/json';
-  return handler(new Request(`http://localhost:3000/api/${path}`,{method,headers,body:body instanceof FormData?body:body?JSON.stringify(body):undefined}),{params:Promise.resolve({path:path.split('/')})});
+  return handler(new Request(`http://localhost:3000/api/${path}`,{method,headers,body:body instanceof FormData?body:body?JSON.stringify(body):undefined}),{params:Promise.resolve({path:path.split('?')[0].split('/')})});
 }
 let cookie='';
 test('API requires login for private operations',async()=>{
@@ -38,11 +38,37 @@ test('private file and metadata are protected until explicitly attached to a pub
   assert.equal((await request(`items/${item.id}`)).status,404);
   assert.equal((await request(`files/${asset.id}`,'DELETE',undefined,cookie)).status,409);
   assert.equal((await request(`items/${item.id}`,'PUT',{...item,visibility:'public'},cookie)).status,200);
-  const publicImage=await request(`files/${asset.id}`);assert.equal(publicImage.status,200);assert.equal(publicImage.headers.get('cache-control'),'private, no-store');
+  // 文件是 UUID 命名、内容不再变更，所以可以放心让浏览器长期缓存。
+  const publicImage=await request(`files/${asset.id}`);assert.equal(publicImage.status,200);assert.equal(publicImage.headers.get('cache-control'),'private, max-age=31536000, immutable');
   assert.equal((await request(`items/${item.id}`,'PUT',{...item,visibility:'private'},cookie)).status,200);
   assert.equal((await request(`files/${asset.id}`)).status,401);
   assert.equal((await request(`items/${item.id}`,'DELETE',undefined,cookie)).status,200);
   assert.equal((await request(`files/${asset.id}`,'DELETE',undefined,cookie)).status,200);
+});
+test('images nobody references can be listed and cleaned up',async()=>{
+  const png=new Uint8Array([137,80,78,71,13,10,26,10]);
+  async function upload(name:string){
+    const form=new FormData();form.append('file',new File([png],name,{type:'image/png'}));
+    const response=await request('files','POST',form,cookie);assert.equal(response.status,201);
+    return (await response.json()).file as {id:string};
+  }
+  const kept=await upload('kept.png');const orphan=await upload('orphan.png');
+  const documentForm=new FormData();documentForm.append('file',new File(['私人笔记'],'notes.txt',{type:'text/plain'}));
+  const documentResponse=await request('files','POST',documentForm,cookie);assert.equal(documentResponse.status,201);
+  const document=(await documentResponse.json()).file as {id:string};
+  const created=await request('items','POST',{kind:'moment',title:'keep me',body:'body',visibility:'private',assetId:kept.id,tags:[],category:'生活',url:''},cookie);
+  assert.equal(created.status,201);const item=(await created.json()).item as {id:string};
+  const listed=await request('files?unused=1','GET',undefined,cookie);assert.equal(listed.status,200);
+  assert.deepEqual(((await listed.json()).files as {id:string}[]).map(file=>file.id),[orphan.id]);
+  // 同时把正在用的那张一起提交，它应该被跳过而不是被删掉。
+  const cleaned=await request('files?cleanup=1','POST',{ids:[orphan.id,kept.id,document.id]},cookie);assert.equal(cleaned.status,200);
+  assert.deepEqual(await cleaned.json(),{ok:true,removed:1,skipped:2});
+  assert.equal((await request(`files/${orphan.id}`,'GET',undefined,cookie)).status,404);
+  assert.equal((await request(`files/${kept.id}`,'GET',undefined,cookie)).status,200);
+  assert.equal((await request(`files/${document.id}`,'GET',undefined,cookie)).status,200);
+  await request(`items/${item.id}`,'DELETE',undefined,cookie);
+  await request(`files/${kept.id}`,'DELETE',undefined,cookie);
+  await request(`files/${document.id}`,'DELETE',undefined,cookie);
 });
 test('Iris proxy preserves local content events without exposing private endpoints',async()=>{
   const upstream=createServer((req,res)=>{if(req.url==='/api/chat/stream'){res.setHeader('Content-Type','application/x-ndjson');res.end('{"type":"text_delta","data":{"content":"来自 Iris"}}\n');}else if(req.url?.endsWith('/source')){res.setHeader('Content-Type','text/html');if(req.url.includes('doc-named'))res.setHeader('Content-Disposition',`inline; filename="plan.pdf"; filename*=UTF-8''%E5%B9%B4%E5%BA%A6%E8%AE%A1%E5%88%92.pdf`);if(req.url.includes('doc-plain'))res.setHeader('Content-Disposition','attachment; filename="quarterly report.xlsx"');if(req.url.includes('doc-traversal'))res.setHeader('Content-Disposition','attachment; filename="../../etc/passwd"');res.end('<html>source</html>');}else {res.setHeader('Content-Type','application/json');res.end('{"status":"ok"}');}});
