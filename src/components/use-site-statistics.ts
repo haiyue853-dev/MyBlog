@@ -4,7 +4,7 @@ import {api,errorMessage} from '@/lib/client';
 import type {SiteStatistics} from '@/lib/types';
 import {ensureVisitor} from '@/lib/visitor-client';
 
-const publicViews=['home','life','collection','about','materials','stats'];
+const publicViews=['home','life','collection','about','stats'];
 export function useSiteStatistics(view:string){
   const [stats,setStats]=useState<SiteStatistics|null>(null);const [error,setError]=useState('');const [loading,setLoading]=useState(false);
   const visit=useRef<{view:string;eventId:string}|null>(null);const revision=useRef(0);

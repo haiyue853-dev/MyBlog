@@ -4,7 +4,7 @@ import {loginClient} from '../security';
 import {visitorHash,visitorToken} from '../visitor';
 import {beijingDay} from './likes';
 
-const PUBLIC_VIEWS=['home','life','collection','about','materials','stats'];
+const PUBLIC_VIEWS=['home','life','collection','about','stats'];
 export async function statisticsApi(request:Request){
   const store=getRuntimeStore();const day=beijingDay();
   if(request.method==='GET')return json({stats:await store.getStatistics(day)});
