@@ -1,8 +1,16 @@
 import {getRuntimeStore as getStore,runtimeConfig} from '../runtime';
 import {ApiError,json,readJson,requireOrigin,requireOwner,validId} from '../http';
 import {allowedIrisPath,attachmentDisposition,sourceFileName} from '../iris-stream';
+import {prepareIrisBlog} from './iris-blog';
+import {uploadIrisChatFile,readIrisChatImage} from './iris-chat-files';
+import {MAX_CHAT_FILES} from '../iris-chat-files';
+import {irisPreferencesApi} from './iris-preferences';
 
 export async function irisApi(request:Request,path:string[]){await requireOwner(request);if(request.method!=='GET')requireOrigin(request);
+  if(path.slice(1).join('/')==='blog/preferences')return irisPreferencesApi(request);
+  if(path.slice(1).join('/')==='blog/prepare')return prepareIrisBlog(request);
+  if(path.length===4&&path[1]==='sessions'&&path[3]==='attachments')return uploadIrisChatFile(request,path[2]);
+  if(path.length===6&&path[1]==='sessions'&&path[3]==='attachments'&&path[5]==='download')return readIrisChatImage(request,path[2],path[4]);
   let endpoint=path.slice(1);let body:Record<string,unknown>|undefined;
   if(endpoint.join('/')==='import'&&request.method==='POST'){
     const data=await readJson(request);const store=getStore();const asset=(await store.getAsset(validId(String(data.assetId))));if(!asset)throw new ApiError(404,'文件不存在。');
@@ -15,7 +23,9 @@ export async function irisApi(request:Request,path:string[]){await requireOwner(
     if(request.method!=='GET'&&!(request.method==='POST'&&(isChat||createSession)))throw new ApiError(405,'不支持这个操作。');
     if(request.method==='POST'){const data=await readJson(request);if(isChat){
       if(typeof data.session_id!=='string'||!(/^[A-Za-z0-9_-]{1,100}$/.test(data.session_id))||typeof data.message!=='string'||!data.message.trim()||data.message.length>10000)throw new ApiError(400,'请输入不超过 10000 字的问题。');
-      body={session_id:data.session_id,message:data.message,use_knowledge:data.use_knowledge===true,knowledge_collection_id:typeof data.knowledge_collection_id==='string'?data.knowledge_collection_id:null,toolsets:['safe','knowledge']};
+      const attachments=data.attachment_ids===undefined?[]:data.attachment_ids;
+      if(!Array.isArray(attachments)||attachments.length>MAX_CHAT_FILES||attachments.some(id=>typeof id!=='string'||!/^[A-Za-z0-9_-]{1,100}$/.test(id))||new Set(attachments).size!==attachments.length)throw new ApiError(400,'请选择最多 10 份有效且不重复的附件。');
+      body={session_id:data.session_id,message:data.message,attachment_ids:attachments,use_knowledge:data.use_knowledge===true,knowledge_collection_id:typeof data.knowledge_collection_id==='string'?data.knowledge_collection_id:null,toolsets:['safe','knowledge','research']};
     }else body={name:typeof data.name==='string'?data.name.slice(0,100):'小屋对话'};}
   }
   const config=runtimeConfig();const base=config.irisBaseUrl||'http://127.0.0.1:8000';const target=new URL(`/api/${endpoint.map(encodeURIComponent).join('/')}`,base);

@@ -3,8 +3,10 @@ import {resolve,join,dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {randomBytes} from 'node:crypto';
 import {build} from 'esbuild';
+import {TRASH_SCHEMA} from '../src/lib/trash-schema';
 import {LIKES_SCHEMA} from '../src/lib/likes-schema';
 import {STATISTICS_SCHEMA} from '../src/lib/statistics-schema';
+import {COMMENTS_SCHEMA} from '../src/lib/comments-schema';
 
 export const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 export async function buildCloudflare(destination:string){
@@ -33,7 +35,7 @@ export async function buildCloudflare(destination:string){
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Cache-Control: no-cache
 `);
-  await writeFile(join(destination,'schema.sql'),await readFile(join(projectRoot,'cloudflare/schema.sql'),'utf8')+'\n'+LIKES_SCHEMA+'\n'+STATISTICS_SCHEMA+'\n');
+  await writeFile(join(destination,'schema.sql'),await readFile(join(projectRoot,'cloudflare/schema.sql'),'utf8')+'\n'+TRASH_SCHEMA+'\n'+LIKES_SCHEMA+'\n'+STATISTICS_SCHEMA+'\n'+COMMENTS_SCHEMA+'\n');
   const name=`little-world-${randomBytes(3).toString('hex')}`;
   const config={name,main:'worker.js',compatibility_date:'2026-10-02',compatibility_flags:['nodejs_compat'],workers_dev:true,
     assets:{directory:'./public',binding:'ASSETS',run_worker_first:['/api/*'],not_found_handling:'404-page'},

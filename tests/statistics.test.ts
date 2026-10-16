@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {randomUUID,createHash} from 'node:crypto';
 import {getStore,Store} from '../src/lib/store';
 import {GET as handler} from '../src/app/api/[...path]/route';
+import {newArticle} from '../src/lib/articles';
 
 const directory=mkdtempSync(join(tmpdir(),'world-statistics-'));
 process.env.DATA_DIR=directory;process.env.APP_URL='https://world.test';
@@ -30,7 +31,7 @@ test('statistics count real public visits and distinct browsers, with persistent
   const concurrent=await Promise.all(Array.from({length:12},()=>request('stats','POST',second,{view:'stats',eventId:randomUUID()})));
   for(const response of concurrent)assert.equal(response.status,200);
   const read=(await (await request()).json()).stats;assert.equal(read.totalViews,13);assert.equal(read.totalVisitors,2);assert.equal(read.todayVisitors,2);assert.equal(read.todayViews,13);
-  assert.deepEqual(read.content,{moments:1,collections:1,categories:2,tags:3,likes:1});
+  assert.deepEqual(read.content,{moments:1,collections:1,categories:2,tags:3,likes:1,articles:0,words:0});
   assert.equal(read.history.at(-1).views,13);
   const identity=createHash('sha256').update(first.split('=')[1]).digest('hex');
   const nextDay=new Date(Date.parse(firstData.stats.day+'T00:00:00Z')+86400000).toISOString().slice(0,10);
@@ -39,6 +40,17 @@ test('statistics count real public visits and distinct browsers, with persistent
   assert.equal(store.recordVisit(randomUUID(),identity,firstData.stats.day),true,'A delayed prior-day visit cannot create a second daily visitor');
   assert.equal(store.getStatistics(firstData.stats.day).todayVisitors,2);
   const reopened=new Store(directory);try{assert.equal(reopened.getStatistics(nextDay).totalViews,15);}finally{reopened.close();}
+});
+
+test('article totals count visible published writing and actual text, excluding private drafts and trash',()=>{
+ const isolated=new Store(join(directory,'article-counts'));
+ try{
+  const input={kind:'moment' as const,title:'文章',body:'你好 **世界**\n\n[Hi](https://example.com)\n\n![不计入字数](/api/files/00000000-0000-4000-8000-000000000001?inline=1)',article:newArticle(),tags:['日常'],category:'生活',url:'',assetId:null,visibility:'public' as const,status:'published' as const};
+  isolated.saveItem(input);isolated.saveItem({...input,visibility:'private'});isolated.saveItem({...input,status:'draft'});
+  const trash=isolated.saveItem(input);isolated.trashItem(trash.id);
+  isolated.saveItem({...input,article:null});isolated.saveItem({...input,kind:'collection',article:null});
+  const stats=isolated.getStatistics('2026-10-16');assert.equal(stats.content.articles,1);assert.equal(stats.content.words,6);
+ }finally{isolated.close();}
 });
 
 test('statistics reject cross-origin writes, missing identities and private/arbitrary view names',async()=>{

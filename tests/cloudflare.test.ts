@@ -35,10 +35,14 @@ test('full package keeps private import outside public assets; Workers enforce a
     const avatar=store.addAsset({name:'avatar.png',mime:'image/png',size:8,category:'头像'});
     writeFileSync(join(source,'files',avatar.id),Buffer.from([137,80,78,71,13,10,26,10]));
     store.saveProfile({...DEFAULT_PROFILE,name:'Cloudflare验收小屋',avatarId:avatar.id});
-    store.saveItem({kind:'moment',title:'公开记录',body:'PUBLIC_BODY_MARKER',visibility:'public',tags:[],category:'生活',url:'',assetId:null});
+    const importedArticle=store.saveItem({kind:'moment',title:'公开记录',body:'PUBLIC_BODY_MARKER',visibility:'public',tags:[],category:'生活',url:'',assetId:null,article:{summary:'',kicker:'',series:'',spoiler:false,coverPosition:'center',facts:[],quote:''}});
+    const importedComment=store.addComment({itemId:importedArticle.id,visitor:'migration-guest',name:'迁移访客',body:'迁移时保留留言与已读状态',owner:false})!;store.markCommentRead(importedArticle.id,importedComment.id,true);
+    store.saveCommentReply(importedArticle.id,importedComment.id,'迁移站主','迁移时保留关联回复');
     store.saveItem({kind:'moment',title:'私人记录',body:'PRIVATE_BODY_MARKER'+"汉字🎵'".repeat(10000),visibility:'private',tags:[],category:'生活',url:'',assetId:null});
+    const importedTrash=store.saveItem({...importedArticle,id:randomUUID(),title:'迁移回收站',assetId:avatar.id});store.trashItem(importedTrash.id);
+    const importedTravel=[{cityId:'350100',status:'visited' as const,note:'迁移保留旅行手记',date:'2026-04-04',itemId:importedArticle.id}];store.saveTravelPlaces(importedTravel);
     store.close();
-    const result=await exportCloudflare(source,output);assert.equal(result.itemCount,2);
+    const result=await exportCloudflare(source,output);assert.equal(result.itemCount,3);
     const sql=readFileSync(join(output,'private-import/data.sql'),'utf8');
     assert.ok(!sql.includes('PRIVATE_IRIS_TOKEN_MARKER'));assert.ok(!sql.includes('PRIVATE_OLD_SESSION_MARKER'));
     assert.ok(!/scrypt:[a-f0-9]{32}:[a-f0-9]{128}/.test(sql));
@@ -59,9 +63,21 @@ test('full package keeps private import outside public assets; Workers enforce a
       const request=new Request(`https://little-world.test/api/${path}`,{method,headers,body:body instanceof FormData?body:body?JSON.stringify(body):undefined});
       return mf!.dispatchFetch(request.url,{method,headers:Object.fromEntries(request.headers),body:body?await request.arrayBuffer():undefined});
     };
+    for(const [path,method,body] of [
+      ['iris/health','GET',undefined],['iris/sessions','GET',undefined],
+      ['iris/sessions/private-session','GET',undefined],['iris/knowledge','GET',undefined],
+      ['iris/knowledge/collections','GET',undefined],['iris/knowledge/private-document/source','GET',undefined],
+      ['iris/sessions','POST',{name:'private'}],['iris/chat/stream','POST',{session_id:'private',message:'hello'}],
+      ['iris/import','POST',{assetId:avatar.id}],
+    ] as const){
+      for(const session of ['',`world-session=${'f'.repeat(64)}`])
+        assert.equal((await call(path,method,body,session)).status,401,`${method} ${path} requires the owner before checking Iris configuration`);
+    }
     const bootstrap=await (await call('bootstrap')).json() as {items:{id:string;body:string}[];owner:boolean};
     assert.equal(bootstrap.owner,false);assert.deepEqual(bootstrap.items.map(item=>item.body),['PUBLIC_BODY_MARKER']);
     const publicId=bootstrap.items[0].id;
+    assert.deepEqual(await (await call('travel')).json(),{places:importedTravel});
+    assert.equal((await call('travel','PUT',{places:[]})).status,401);
     const firstVisit=await call(`likes?ids=${publicId}`);
     assert.equal(firstVisit.status,200);
     const visitorCookie=firstVisit.headers.get('set-cookie')!.split(';')[0];
@@ -97,6 +113,18 @@ test('full package keeps private import outside public assets; Workers enforce a
     const login=await call('auth/login','POST',{password:key});assert.equal(login.status,200);
     const setCookie=login.headers.get('set-cookie')!;assert.ok(setCookie.includes('HttpOnly')&&setCookie.includes('Secure'));
     const cookie=setCookie.split(';')[0];
+    assert.equal((await call('travel','PUT',{places:[]},cookie,'192.0.2.10','https://evil.test')).status,403);
+    assert.equal((await call('travel','PUT',{places:[...importedTravel,{cityId:'350200',status:'wish',note:'下一站',date:'',itemId:null}]},cookie)).status,200);
+    assert.equal(((await (await call('travel')).json()) as {places:unknown[]}).places.length,2);
+    assert.equal((await call('trash')).status,401);
+    const migratedTrash=await (await call('trash','GET',undefined,cookie)).json() as {entries:{item:unknown}[]};assert.equal(migratedTrash.entries.length,1);assert.deepEqual(migratedTrash.entries[0].item,importedTrash);
+    assert.equal((await call(`trash/${importedTrash.id}`,'POST',undefined,cookie,'192.0.2.10','https://evil.test')).status,403);
+    assert.equal((await call(`trash/${importedTrash.id}`,'POST',undefined,cookie)).status,200);
+    assert.deepEqual((await (await call(`items/${importedTrash.id}`,'GET',undefined,cookie)).json() as {item:unknown}).item,importedTrash);
+    assert.equal((await call(`trash/${importedTrash.id}`,'DELETE',undefined,cookie)).status,404);
+    await call(`items/${importedTrash.id}`,'DELETE',undefined,cookie);await call(`trash/${importedTrash.id}`,'DELETE',undefined,cookie);
+    const migratedComments=await (await call('comments','GET',undefined,cookie)).json() as {total:number;unread:number;comments:{id:string;unread:boolean}[]};assert.equal(migratedComments.total,1);assert.equal(migratedComments.unread,0);assert.equal(migratedComments.comments[0].id,importedComment.id);assert.equal(migratedComments.comments[0].unread,false);
+    const importedPublic=await (await call(`comments/${importedArticle.id}`)).json() as {comments:{reply:{body:string;name:string}}[]};assert.equal(importedPublic.comments[0].reply.body,'迁移时保留关联回复');assert.equal(importedPublic.comments[0].reply.name,'迁移站主');
     const privateItems=await (await call('items','GET',undefined,cookie)).json() as {items:{body:string}[]};
     assert.equal(privateItems.items.length,2);assert.equal(privateItems.items.find(item=>item.body.startsWith('PRIVATE'))!.body,'PRIVATE_BODY_MARKER'+"汉字🎵'".repeat(10000));
     const form=new FormData();form.append('file',new File(['PRIVATE_UPLOAD_MARKER'],'秘密.md',{type:'text/markdown'}));
@@ -107,6 +135,97 @@ test('full package keeps private import outside public assets; Workers enforce a
     assert.equal((await call(`files/${id}`,'DELETE',undefined,cookie)).status,200);
     assert.equal((await call(`files/${id}`,'GET',undefined,cookie)).status,404);
     assert.equal((await call(`files/${avatar.id}`,'DELETE',undefined,cookie)).status,409);
+    const photoIds:string[]=[];
+    for(let index=0;index<2;index++){
+      const photoForm=new FormData();photoForm.append('file',new File([new Uint8Array([137,80,78,71,13,10,26,10])],`diary-${index}.png`,{type:'image/png'}));
+      const photoResponse=await call('files','POST',photoForm,cookie);assert.equal(photoResponse.status,201);
+      photoIds.push(((await photoResponse.json()) as {file:{id:string}}).file.id);
+    }
+    const diaryInput={kind:'moment',title:'多图日记',body:'两张照片',visibility:'public',tags:[],category:'生活',url:'',assetId:photoIds[0],images:photoIds.map(assetId=>({assetId}))};
+    const diaryResponse=await call('items','POST',diaryInput,cookie);assert.equal(diaryResponse.status,201);
+    const diary=(await diaryResponse.json()) as {item:{id:string;images:{assetId:string}[]}};
+    assert.deepEqual(diary.item.images,diaryInput.images);
+    const watchConfig={type:'韩剧',state:'watching',rating:8.5,episodes:16,watched:4,year:'2026',reviewId:null};
+    const watchResponse=await call('items','POST',{...diaryInput,kind:'collection',assetId:null,images:undefined,watch:watchConfig},cookie);assert.equal(watchResponse.status,201);
+    const watchItem=((await watchResponse.json()) as {item:{id:string;watch:unknown}}).item;assert.deepEqual(watchItem.watch,watchConfig);
+    assert.deepEqual(((await (await call(`items/${watchItem.id}`)).json()) as {item:{watch:unknown}}).item.watch,watchConfig);
+    for(const path of ['bootstrap','items',`items/${watchItem.id}`]){
+      const data=await (await call(path)).json() as {items?:{id:string;body:string}[];item?:{id:string;body:string}};
+      assert.equal((data.item||data.items!.find(item=>item.id===watchItem.id))!.body,'');
+    }
+    assert.equal(((await (await call(`items/${watchItem.id}`,'GET',undefined,cookie)).json()) as {item:{body:string}}).item.body,diaryInput.body);
+    assert.equal((await call('items','POST',{...diaryInput,kind:'collection',images:undefined,watch:{...watchConfig,watched:17}},cookie)).status,400);
+    const createId=randomUUID();
+    const repeated=await Promise.all([0,1].map(()=>call('items','POST',{...diaryInput,kind:'collection',images:undefined,clientRequestId:createId},cookie)));
+    for(const response of repeated){assert.equal(response.status,201);assert.equal(((await response.json()) as {item:{id:string}}).item.id,createId);}
+    const batchItems=await (await call('items','GET',undefined,cookie)).json() as {items:{id:string}[]};
+    assert.equal(batchItems.items.filter(item=>item.id===createId).length,1);
+    assert.equal((await call(`items/${createId}`,'DELETE',undefined,cookie)).status,200);
+    assert.equal((await call('items','POST',{...diaryInput,kind:'collection',images:undefined,clientRequestId:createId},cookie)).status,409);
+    assert.equal((await call(`items/${createId}`,'GET',undefined,cookie)).status,404);
+    const trashedLikes=await (await call(`likes?ids=${createId}`,'GET',undefined,cookie)).json() as {likes:unknown};assert.deepEqual(trashedLikes.likes,{});
+    assert.equal((await call(`files/${photoIds[1]}?inline=1`)).status,200);
+    assert.equal((await call(`files/${photoIds[1]}`,'DELETE',undefined,cookie)).status,409);
+    const unused=await (await call('files?unused=1','GET',undefined,cookie)).json() as {files:{id:string}[]};
+    assert.ok(!unused.files.some(file=>photoIds.includes(file.id)));
+    assert.equal((await call(`items/${diary.item.id}`,'PUT',{...diaryInput,visibility:'private'},cookie)).status,200);
+    assert.equal((await call(`files/${photoIds[1]}?inline=1`)).status,401);
+    assert.equal((await call(`items/${diary.item.id}`,'DELETE',undefined,cookie)).status,200);
+    const draftInput={...diaryInput,title:'D1 观后感草稿',status:'draft',writingType:'review',article:{summary:'摘要',kicker:'',series:'',spoiler:false,coverPosition:'center',facts:[],quote:''}};
+    const draftResponse=await call('items','POST',draftInput,cookie);assert.equal(draftResponse.status,201);
+    const draft=(await draftResponse.json()) as {item:{id:string;status:string}};assert.equal(draft.item.status,'draft');
+    assert.equal((await call(`items/${draft.item.id}`)).status,404);
+    const draftList=await (await call('items')).json() as {items:{id:string}[]};assert.ok(!draftList.items.some(item=>item.id===draft.item.id));
+    for(const photoId of photoIds)assert.equal((await call(`files/${photoId}?inline=1`)).status,401);
+    assert.deepEqual(((await (await call(`likes?ids=${draft.item.id}`)).json()) as {likes:unknown}).likes,{});
+    assert.equal((await call(`items/${draft.item.id}`,'PATCH',{status:'published',pinned:true},cookie)).status,200);
+    assert.equal((await call(`items/${draft.item.id}`)).status,200);
+    assert.equal((await call('visitor','POST',{name:'D1访客'},visitorCookie)).status,200);
+    const commentResponse=await call(`comments/${draft.item.id}`,'POST',{body:'这篇观后感很喜欢。'},visitorCookie);assert.equal(commentResponse.status,201);
+    const comment=(await commentResponse.json() as {comment:{id:string;name:string;owner:boolean}}).comment;assert.equal(comment.name,'D1访客');assert.equal(comment.owner,false);
+    assert.equal((await call('comments')).status,401);
+    const managed=await (await call('comments?status=unread','GET',undefined,cookie)).json() as {unread:number;comments:{id:string;item:{type:string}}[]};assert.equal(managed.unread,1);assert.equal(managed.comments[0].item.type,'review');
+    assert.equal((await call(`comments/${draft.item.id}/${comment.id}`,'PATCH',{read:true},visitorCookie)).status,401);
+    assert.equal((await call(`comments/${draft.item.id}/${comment.id}`,'PATCH',{read:true},cookie)).status,200);
+    assert.equal((await (await call('comments?status=unread','GET',undefined,cookie)).json() as {unread:number}).unread,0);
+    const replyPath=`comments/${draft.item.id}/${comment.id}/reply`;
+    assert.equal((await call(replyPath,'PUT',{body:'伪造站主回复'},visitorCookie)).status,401);
+    assert.equal((await call(replyPath,'DELETE',undefined,visitorCookie)).status,401);
+    assert.equal((await call(replyPath,'PUT',{body:'感谢你的喜欢。'},cookie)).status,200);
+    const replied=await (await call(`comments/${draft.item.id}`)).json() as {comments:{reply:{body:string;createdAt:string}}[]};assert.equal(replied.comments[0].reply.body,'感谢你的喜欢。');
+    assert.equal((await call(replyPath,'PUT',{body:'修改后的回复'},cookie)).status,200);
+    const editedReply=await (await call(`comments/${draft.item.id}`)).json() as {comments:{reply:{body:string;createdAt:string}}[]};assert.equal(editedReply.comments[0].reply.body,'修改后的回复');assert.equal(editedReply.comments[0].reply.createdAt,replied.comments[0].reply.createdAt);
+    assert.equal((await call(replyPath,'DELETE',undefined,cookie)).status,200);
+    assert.equal((await call(replyPath,'PUT',{body:'随原留言一起清理'},cookie)).status,200);
+    const located=await (await call(`comments/${draft.item.id}?focus=${comment.id}`)).json() as {page:number;comments:{id:string}[]};assert.equal(located.page,1);assert.equal(located.comments[0].id,comment.id);
+    assert.equal((await call(`comments/${draft.item.id}/${comment.id}`,'DELETE')).status,403);
+    for(const photoId of photoIds)assert.equal((await call(`files/${photoId}?inline=1`)).status,200);
+    assert.equal((await call(`items/${draft.item.id}`,'PATCH',{status:'draft'},cookie)).status,200);
+    assert.equal((await call(`items/${draft.item.id}`)).status,404);
+    assert.equal((await call(`comments/${draft.item.id}`)).status,404);
+    const hiddenComments=await (await call('comments','GET',undefined,cookie)).json() as {comments:{id:string;item:{status:string}}[]};assert.equal(hiddenComments.comments[0].id,comment.id);assert.equal(hiddenComments.comments[0].item.status,'draft');
+    assert.equal((await call(`comments/${draft.item.id}/${comment.id}`,'DELETE',undefined,cookie)).status,200);
+    assert.equal(await db.prepare('SELECT comment_id FROM comment_reads WHERE comment_id=?').bind(comment.id).first(),null);
+    assert.equal(await db.prepare('SELECT comment_id FROM comment_replies WHERE comment_id=?').bind(comment.id).first(),null);
+    assert.equal((await call(`items/${draft.item.id}`,'DELETE',undefined,cookie)).status,200);
+    for(const photoId of photoIds)assert.equal((await call(`files/${photoId}`,'DELETE',undefined,cookie)).status,409);
+    for(const itemId of [createId,diary.item.id,draft.item.id])assert.equal((await call(`trash/${itemId}`,'DELETE',undefined,cookie)).status,200);
+    for(const photoId of photoIds)assert.equal((await call(`files/${photoId}`,'DELETE',undefined,cookie)).status,200);
+    const clipBytes=new Uint8Array([0,0,0,24,102,116,121,112,105,115,111,109,0,0,0,0,105,115,111,109,109,112,52,50,0,0,0,8,109,100,97,116]);
+    const clipForm=new FormData();clipForm.set('file',new File([clipBytes],'clip.mp4'));
+    const clipUpload=await call('files?video=1','POST',clipForm,cookie);assert.equal(clipUpload.status,201);
+    const clipAsset=(await clipUpload.json() as {file:{id:string}}).file;
+    const clipInput={kind:'video',title:'R2 视频作品',body:'分段播放',category:'日常',tags:[],visibility:'public',assetId:null,url:'',video:{assetId:clipAsset.id,duration:5}};
+    const clipResponse=await call('items','POST',clipInput,cookie);assert.equal(clipResponse.status,201);
+    const clip=(await clipResponse.json() as {item:{id:string}}).item;
+    const clipRange=await mf.dispatchFetch(`https://little-world.test/api/files/${clipAsset.id}?inline=1`,{headers:{range:'bytes=4-11'}});
+    assert.equal(clipRange.status,206);assert.equal(clipRange.headers.get('content-range'),`bytes 4-11/${clipBytes.length}`);assert.deepEqual(new Uint8Array(await clipRange.arrayBuffer()),clipBytes.slice(4,12));
+    assert.equal((await call(`items/${clip.id}`,'PUT',{...clipInput,visibility:'private'},cookie)).status,200);
+    assert.equal((await call(`files/${clipAsset.id}?inline=1`)).status,401);
+    assert.equal((await call(`items/${clip.id}`,'DELETE',undefined,cookie)).status,200);
+    assert.equal((await call(`files/${clipAsset.id}`,'DELETE',undefined,cookie)).status,409);
+    assert.equal((await call(`trash/${clip.id}`,'DELETE',undefined,cookie)).status,200);
+    assert.equal((await call(`files/${clipAsset.id}`,'DELETE',undefined,cookie)).status,200);
     assert.equal((await call('iris/health','GET',undefined,cookie)).status,503);
     const failures=await Promise.all(Array.from({length:20},()=>call('auth/login','POST',{password:'0'.repeat(128)},'','192.0.2.20')));
     // 并发不能绕过阈值：真正拿到密码校验机会（401）的绝不超过 4 次，其余一律 429。

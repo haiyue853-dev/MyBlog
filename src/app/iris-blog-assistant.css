@@ -1,0 +1,83 @@
+.iris-blog-assistant{margin:0 0 24px;overflow:hidden}
+.iris-blog-assistant>summary{display:flex;align-items:center;gap:10px;padding:18px 22px;cursor:pointer;list-style:none;color:var(--space-accent);font-weight:600}
+.iris-blog-assistant>summary::-webkit-details-marker{display:none}
+.iris-blog-assistant>summary .muted{margin-left:auto;font-weight:400}
+.iris-blog-workspace{padding:0 22px 22px;border-top:1px solid var(--space-line)}
+.iris-blog-workspace>form{padding-top:18px}
+.iris-material-editor{min-height:180px;max-height:600px;overflow-y:auto;border:1px solid var(--space-line);border-radius:16px;padding:16px;background:#fffdf9;line-height:1.9;white-space:pre-wrap;overflow-wrap:anywhere;outline:none;color:var(--space-text)}
+.iris-material-editor:focus{border-color:var(--space-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--space-accent) 12%,transparent)}
+.iris-material-editor:empty:before{content:attr(data-placeholder);color:var(--space-muted);pointer-events:none}
+.iris-material-editor[aria-disabled=true]{opacity:.65}
+.iris-material-editor-wrap>.hint{margin:8px 0 0}
+.iris-material-image{display:block;position:relative;width:100%;max-width:100%;margin:8px 0;line-height:0;white-space:normal;border-radius:12px}
+.iris-material-image img{display:block;max-width:100%;max-height:none;width:100%;height:auto;border-radius:12px;object-fit:contain}
+.iris-material-image-remove{position:absolute;top:8px;right:8px;display:grid;place-items:center;width:30px;height:30px;padding:0;border:1px solid #e4d6cf;border-radius:50%;background:#fffcf8;color:#6e5148;font-size:23px;line-height:1;cursor:pointer}
+.iris-material-image-remove:disabled{opacity:.4;cursor:default}
+.iris-material-image[data-image-align=center]>img{margin-left:auto;margin-right:auto}
+.iris-material-image[data-image-align=left]>img{margin-left:0;margin-right:auto}
+.iris-material-image[data-image-align=right]>img{margin-left:auto;margin-right:0}
+.iris-material-image{max-width:100%;outline:none}
+.iris-material-image.is-selected,.iris-material-image:focus-within{outline:2px solid var(--space-accent);outline-offset:4px}
+.iris-material-image-tools{display:none;align-items:center;flex-wrap:wrap;gap:5px;padding:6px 38px 6px 6px;background:#fff5ef;border:1px solid var(--space-line);border-radius:10px;margin-bottom:6px;line-height:1.5;width:100%;max-width:100%;box-sizing:border-box}
+.iris-material-image.is-selected .iris-material-image-tools,.iris-material-image:focus-within .iris-material-image-tools{display:flex}
+.iris-material-image-tools button,.iris-material-image-tools select{font:inherit;font-size:12px;line-height:1.5;min-height:30px;padding:4px 8px;border:1px solid var(--space-line);border-radius:7px;background:#fffdf9;color:var(--space-text);cursor:pointer}
+.iris-material-image-tools button[aria-pressed=true]{background:#f8e5ed;color:var(--space-accent);border-color:var(--space-accent)}
+.iris-material-image-tools input[type=range]{width:120px;max-width:100%;min-width:70px;min-height:28px;padding:0;accent-color:var(--space-accent);cursor:pointer}
+.iris-material-editor{scrollbar-gutter:stable}
+.iris-blog-composer-actions>.button+.button{margin-left:0}
+.iris-blog-materials{display:flex;flex-wrap:wrap;gap:9px}
+.iris-blog-material{display:flex;align-items:center;gap:8px;background:#fff3ec;border:1px solid var(--space-line);border-radius:13px;padding:5px 7px 5px 9px;max-width:100%;min-width:0}
+.iris-blog-material img{width:36px;height:36px;object-fit:cover;border-radius:8px}
+.iris-blog-material>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.iris-blog-material .icon-button{min-width:32px;min-height:32px;padding:5px;flex-shrink:0}
+.iris-blog-composer-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.iris-blog-composer-actions>.button{margin-left:auto}
+.iris-blog-preview{margin-top:22px;padding:24px;background:#fffcf8}
+.iris-blog-preview-heading{display:flex;justify-content:space-between;gap:10px;margin-bottom:10px}
+.iris-blog-preview h3{font-size:24px;line-height:1.5;overflow-wrap:anywhere;margin-bottom:14px}
+.iris-blog-summary{color:var(--space-muted);margin-bottom:15px}
+.iris-blog-preview .hint{margin-top:16px}
+.iris-blog-preview .form-actions{margin-top:14px}
+.iris-blog-photos{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+.iris-blog-photos img{width:120px;height:120px;border-radius:14px;object-fit:cover}
+.iris-blog-workspace>.success{margin-top:18px}
+@media(max-width:600px){.iris-blog-assistant>summary{padding:16px;flex-wrap:wrap}.iris-blog-assistant>summary .muted{width:100%;margin-left:28px}.iris-blog-workspace{padding:0 16px 16px}.iris-blog-preview{padding:17px}.iris-blog-preview h3{font-size:21px}.iris-blog-composer-actions>.button{width:100%;margin-left:0}}
+.iris-chat-blog-action{display:inline-flex;align-items:center;gap:6px;margin-top:10px}
+.iris-chat-blog-status{margin-top:12px}
+.iris-blog-revision{padding:18px;border:1px solid var(--space-line);border-radius:18px;background:#fff7f0}
+.iris-blog-revision h3{font-size:17px;margin:0}
+.iris-blog-revision .form-actions{margin-top:0;flex-wrap:wrap}
+.iris-blog-revision .text-button{display:inline-flex;align-items:center;gap:6px}
+.iris-chat-composer{margin-top:auto;border-radius:17px;transition:background .15s,box-shadow .15s;min-width:0}
+.iris-chat-composer.is-dragging{background:#f8e7ec;box-shadow:0 0 0 3px var(--space-accent)}
+.iris-chat-file-hint{font-size:11px;color:var(--space-muted);padding:7px 4px 0;margin:0}
+.iris-chat-file-picker{position:relative;overflow:hidden;flex-shrink:0;color:var(--space-accent);cursor:pointer}
+.iris-chat-file-picker input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.iris-chat-file-picker.is-disabled{opacity:.5;cursor:default}
+.iris-chat-files{list-style:none;display:flex;gap:8px;flex-wrap:wrap;padding:0;margin:0 0 9px}
+.iris-chat-files li{display:flex;align-items:center;gap:7px;border:1px solid var(--space-line);background:#fff8f2;border-radius:12px;padding:6px 8px;max-width:100%;min-width:0}
+.iris-chat-files li>span{display:grid;gap:2px;min-width:0}
+.iris-chat-files strong{font-size:12px;font-weight:500;overflow-wrap:anywhere}
+.iris-chat-files small{font-size:10px;color:var(--space-muted)}
+.iris-chat-files .icon-button{flex-shrink:0;min-width:28px;min-height:28px;padding:4px}
+.iris-message-files{list-style:none;display:flex;gap:6px;flex-wrap:wrap;padding:0;margin:0 0 8px;font-size:11px;color:var(--space-muted)}
+.iris-message-files li{display:inline-flex;align-items:center;gap:5px;overflow-wrap:anywhere;max-width:100%}
+.iris-chat-image{padding:0;flex-shrink:0;width:64px;height:64px;min-height:64px;border-radius:10px;overflow:hidden;background:#f7ece5;font-size:10px;color:var(--space-muted)}
+.iris-chat-image img{width:100%;height:100%;object-fit:cover;display:block}
+.iris-chat-image:disabled{opacity:.7}
+.iris-chat-photo-picker{border:1px solid var(--space-line);padding:14px;border-radius:15px;min-width:0}
+.iris-chat-photo-options{display:flex;flex-wrap:wrap;gap:14px;margin-top:12px}
+.iris-chat-photo-options>div{display:grid;gap:7px;width:140px;min-width:0}
+.iris-chat-photo-options .iris-chat-image{width:140px;height:105px}
+.iris-chat-photo-options label{display:flex;align-items:center;gap:6px;font-size:12px;overflow-wrap:anywhere}
+.iris-chat-photo-options input{flex-shrink:0}
+.iris-writing-preferences{margin-bottom:18px;overflow:hidden}
+.iris-writing-preferences>summary{display:flex;align-items:center;gap:9px;padding:16px 22px;cursor:pointer;color:var(--space-accent);list-style:none;font-weight:600}
+.iris-writing-preferences>summary::-webkit-details-marker{display:none}
+.iris-writing-preferences>summary .muted{margin-left:auto;font-weight:400}
+.iris-writing-preferences>form{padding:0 22px 22px}
+.iris-writing-preference-types{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.iris-writing-preference-types fieldset{min-width:0;border:1px solid var(--space-line);border-radius:15px;padding:14px}
+.iris-writing-preference-types legend{color:var(--space-muted);padding:0 5px}
+@media(max-width:640px){.iris-writing-preference-types{grid-template-columns:1fr}.iris-writing-preferences>summary{padding:15px;flex-wrap:wrap}.iris-writing-preferences>summary .muted{margin-left:26px;width:100%}.iris-writing-preferences>form{padding:0 15px 15px}}
+.iris-message-files .iris-chat-image{width:90px;height:70px;min-height:70px}

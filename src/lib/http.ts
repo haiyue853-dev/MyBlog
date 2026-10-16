@@ -27,8 +27,7 @@ export async function renewSession(request:Request,response:Response):Promise<Re
   await store.extendSession(token,Date.now()+SESSION_MAX_AGE*1000);
   const headers=new Headers(response.headers);
   headers.append('Set-Cookie',sessionCookie(request,token,SESSION_MAX_AGE));
-  const body=response.body?await response.arrayBuffer():null;
-  return new Response(body,{status:response.status,statusText:response.statusText,headers});
+  return new Response(response.body,{status:response.status,statusText:response.statusText,headers});
 }
 export function newToken(){return randomBytes(32).toString('hex');}
 export async function readBody(request:Request,maxBytes=1024*1024){const length=Number(request.headers.get('content-length'));if(length>maxBytes)throw new ApiError(413,'内容太大，请缩小后再上传。');if(!request.body)return new Uint8Array();const reader=request.body.getReader();const chunks:Uint8Array[]=[];let size=0;try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.byteLength;if(size>maxBytes){await reader.cancel();throw new ApiError(413,'内容太大，请缩小后再上传。');}chunks.push(value);}}finally{reader.releaseLock();}return Buffer.concat(chunks,size);}

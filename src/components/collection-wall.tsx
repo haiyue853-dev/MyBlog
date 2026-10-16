@@ -1,5 +1,5 @@
 'use client';
-import {useLayoutEffect,useMemo,useRef,useState} from 'react';
+import {useLayoutEffect,useMemo,useRef,useState,type CSSProperties} from 'react';
 import {Disc3,Pencil,Trash2} from 'lucide-react';
 import {dateLabel,fileUrl} from '@/lib/client';
 import {cardAspect,type Item} from '@/lib/types';
@@ -56,7 +56,7 @@ function balanceColumns(items:Item[],columns:number):Item[][]{
 //    免得同一个断点在 CSS 和 JS 各写一遍、日后改一处忘一处。
 //
 // 触屏没有 hover，CSS 里对 `@media(hover:none)` 让按钮和信息条常驻，否则手机上只剩一张没名字的图。
-export function CollectionWall({items,owner,likes,pendingLikes,onLike,onOpen,onEdit,onRemove}:{
+export function CollectionWall({items,owner,likes,pendingLikes,onLike,onOpen,onEdit,onRemove,selection}:{
   items:Item[];
   owner:boolean;
   likes:Record<string,DailyLike>;
@@ -65,6 +65,7 @@ export function CollectionWall({items,owner,likes,pendingLikes,onLike,onOpen,onE
   onOpen:(item:Item)=>void;
   onEdit:(item:Item)=>void;
   onRemove:(item:Item)=>void;
+  selection?:{ids:string[];onToggle:(id:string)=>void;disabled:boolean};
 }){
   const wall=useRef<HTMLDivElement>(null);
   const [columns,setColumns]=useState(1);
@@ -78,17 +79,18 @@ export function CollectionWall({items,owner,likes,pendingLikes,onLike,onOpen,onE
     return()=>observer.disconnect();
   },[]);
   const buckets=useMemo(()=>balanceColumns(items,columns),[items,columns]);
-  return <div className="collection-wall" ref={wall}>{buckets.map((bucket,index)=><div className="wall-column" key={index}>
-    {bucket.map(item=><article className="poster-card" key={item.id}>
+  return <div className={`collection-wall ${selection?'is-managing':''}`} ref={wall}>{buckets.map((bucket,index)=><div className="wall-column" key={index}>
+    {bucket.map(item=><article className={`poster-card ${selection?.ids.includes(item.id)?'is-selected':''}`} key={item.id} style={{'--card-order':items.indexOf(item)} as CSSProperties}>
       <div className="poster-frame" style={{aspectRatio:cardAspect(item)}}>
-        <button className="poster-open" onClick={()=>onOpen(item)} aria-label={`查看 ${item.title}`}>
+        <button className="poster-open" disabled={selection?.disabled} onClick={()=>selection?selection.onToggle(item.id):onOpen(item)} aria-pressed={selection?selection.ids.includes(item.id):undefined} aria-label={`${selection?'选择':'查看'} ${item.title}`}>
           {item.assetId?<img src={fileUrl(item.assetId,true)} alt="" loading="lazy"/>:<span className="poster-blank"><Disc3 size={38}/><span>no cover yet</span></span>}
         </button>
         <span className="poster-badge">{item.category||'收藏'}</span>
-        <div className="poster-tools">
+        {selection&&<label className="poster-selection"><input type="checkbox" checked={selection.ids.includes(item.id)} disabled={selection.disabled} aria-label={`勾选 ${item.title}`} onChange={()=>selection.onToggle(item.id)}/></label>}
+        {!selection&&<div className="poster-tools">
           <DailyHeart className="poster-tool poster-like" title={item.title} like={likes[item.id]} pending={pendingLikes.includes(item.id)} onClick={()=>onLike(item.id)}/>
           {owner&&<><button className="poster-tool" onClick={()=>onEdit(item)} aria-label={`编辑 ${item.title}`}><Pencil size={13}/></button><button className="poster-tool" onClick={()=>onRemove(item)} aria-label={`删除 ${item.title}`}><Trash2 size={13}/></button></>}
-        </div>
+        </div>}
         <div className="poster-veil">
           <h3>{item.title}</h3>
           <span>{dateLabel(item.createdAt)}{item.tags.length?` · ${item.tags.slice(0,2).map(value=>'#'+value).join(' ')}`:''}</span>

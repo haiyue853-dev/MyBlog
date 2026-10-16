@@ -1,19 +1,50 @@
+import {activeItemSql,isPublicItem,itemForViewer,publicItemSql} from '../src/lib/content-state';
+import {visibleWatchLinks} from '../src/lib/watch-collection';
+import {defaultWritingPreferences,parseWritingPreferences,type IrisWritingPreferences} from '../src/lib/iris-writing-preferences';
+import {TRASH_PAGE_SIZE,TRASH_LIST,TRASH_ONE,MOVE_TO_TRASH,RESTORE_ITEM,PURGE_ITEM,trashRow} from '../src/lib/trash-schema';
 import {createHash,randomUUID} from 'node:crypto';
 import type {D1Database,R2Bucket} from '@cloudflare/workers-types';
 import {DEFAULT_PROFILE,type Asset,type Item,type ItemInput,type Profile} from '../src/lib/types';
 import type {SiteStore} from '../src/lib/runtime';
+import type {TravelPlace} from '../src/lib/travel';
 import {ApiError} from '../src/lib/http';
 import type {DailyLike} from '../src/lib/types';
 import {DAILY_LIKE_SQL,likeStateSql} from '../src/lib/likes-schema';
 import {RECORD_VISIT_SQL,STATISTICS_SUMMARY_SQL,STATISTICS_HISTORY_SQL,shiftDay,statisticsResult} from '../src/lib/statistics-schema';
+import {ITEM_ASSET_REFERENCE_SQL,USED_ITEM_ASSETS_SQL} from '../src/lib/item-images';
+import {COMMENT_FIELDS,COMMENT_INSERT,COMMENT_ATTEMPT,COMMENT_PAGE_SIZE,commentRow,managedCommentsSql,MANAGED_COMMENT_COUNTS,COMMENT_POSITION,MARK_COMMENT_READ,MARK_COMMENT_UNREAD,managedCommentRow} from '../src/lib/comments-schema';
+import {repliesSql,SAVE_REPLY,DELETE_REPLY,replyRow} from '../src/lib/comments-schema';
+import type {CommentInput,StoredComment,VisitorProfile} from '../src/lib/types';
 
 export class CloudStore implements SiteStore {
   constructor(readonly db:D1Database,readonly files:R2Bucket,readonly maxStorage=8*1024*1024*1024){}
+  async getIrisWritingPreferences():Promise<IrisWritingPreferences>{const row=await this.db.prepare("SELECT data FROM settings WHERE key='iris-writing-preferences'").first<{data:string}>();return row?parseWritingPreferences(JSON.parse(row.data)):defaultWritingPreferences();}
+  async saveIrisWritingPreferences(input:IrisWritingPreferences){const preferences=parseWritingPreferences(input);await this.db.prepare("INSERT INTO settings(key,data) VALUES('iris-writing-preferences',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data").bind(JSON.stringify(preferences)).run();return preferences;}
   private hash(token:string){return createHash('sha256').update(token).digest('hex');}
-  async listItems(owner:boolean):Promise<Item[]>{const rows=await this.db.prepare(owner?'SELECT data FROM items':"SELECT data FROM items WHERE visibility='public'").all<{data:string}>();return rows.results.map(row=>JSON.parse(row.data) as Item).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));}
-  async getItem(id:string,owner=true):Promise<Item|null>{const row=await this.db.prepare('SELECT data,visibility FROM items WHERE id=?').bind(id).first<{data:string;visibility:string}>();return row&&(owner||row.visibility==='public')?JSON.parse(row.data):null;}
-  async saveItem(input:ItemInput):Promise<Item>{const old=input.id?await this.getItem(input.id):null;const item:Item={...input,id:old?.id||randomUUID(),createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};await this.db.prepare('INSERT INTO items(id,kind,visibility,asset_id,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,visibility=excluded.visibility,asset_id=excluded.asset_id,data=excluded.data').bind(item.id,item.kind,item.visibility,item.assetId,JSON.stringify(item)).run();return item;}
+  async listItems(owner:boolean):Promise<Item[]>{const rows=await this.db.prepare(`SELECT data FROM items WHERE ${owner?activeItemSql():publicItemSql()}`).all<{data:string}>();return visibleWatchLinks(rows.results.map(row=>JSON.parse(row.data) as Item).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(item=>itemForViewer(item,owner)),owner);}
+  async getItem(id:string,owner=true):Promise<Item|null>{const row=await this.db.prepare(`SELECT data,visibility FROM items WHERE id=? AND ${activeItemSql()}`).bind(id).first<{data:string;visibility:string}>();const item=row?JSON.parse(row.data) as Item:null;return item&&(owner||isPublicItem(item))?itemForViewer(item,owner):null;}
+  async saveItem(input:ItemInput):Promise<Item>{const old=input.id?await this.getItem(input.id):null;const item:Item={...input,id:old?.id||input.id||randomUUID(),createdAt:old?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};const result=await this.db.prepare(`INSERT INTO items(id,kind,visibility,asset_id,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,visibility=excluded.visibility,asset_id=excluded.asset_id,data=excluded.data WHERE ${activeItemSql()}`).bind(item.id,item.kind,item.visibility,item.assetId,JSON.stringify(item)).run();if(!result.meta.changes)throw new ApiError(409,'这项内容已在回收站，请先恢复。');return item;}
+  async listTrashedItems(page:number){const rows=await this.db.prepare(TRASH_LIST).bind(TRASH_PAGE_SIZE+1,(page-1)*TRASH_PAGE_SIZE).all<Record<string,unknown>>();return rows.results.map(trashRow);}
+  async getTrashedItem(id:string){const row=await this.db.prepare(TRASH_ONE).bind(id).first<Record<string,unknown>>();return row?trashRow(row):null;}
+  async trashCount(){const row=await this.db.prepare('SELECT COUNT(*) AS total FROM item_trash').first<{total:number}>();return Number(row!.total);}
+  async trashItem(id:string){return (await this.db.prepare(MOVE_TO_TRASH).bind(new Date().toISOString(),id).run()).meta.changes>0;}
+  async restoreItem(id:string){return (await this.db.prepare(RESTORE_ITEM).bind(id).run()).meta.changes>0;}
+  async purgeTrashedItem(id:string){return (await this.db.prepare(PURGE_ITEM).bind(id).run()).meta.changes>0;}
   async deleteItem(id:string){return (await this.db.prepare('DELETE FROM items WHERE id=?').bind(id).run()).meta.changes>0;}
+  async getVisitor(visitor:string):Promise<VisitorProfile|null>{return this.db.prepare('SELECT name FROM visitor_profiles WHERE visitor=?').bind(visitor).first<VisitorProfile>();}
+  async saveVisitor(visitor:string,name:string):Promise<VisitorProfile>{await this.db.prepare('INSERT INTO visitor_profiles(visitor,name) VALUES(?,?) ON CONFLICT(visitor) DO UPDATE SET name=excluded.name').bind(visitor,name).run();return {name};}
+  async listComments(itemId:string,page:number):Promise<StoredComment[]>{const rows=await this.db.prepare(`SELECT ${COMMENT_FIELDS} FROM article_comments WHERE item_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`).bind(itemId,COMMENT_PAGE_SIZE+1,(page-1)*COMMENT_PAGE_SIZE).all<Record<string,unknown>>();return rows.results.map(commentRow);}
+  async getComment(itemId:string,id:string):Promise<StoredComment|null>{const row=await this.db.prepare(`SELECT ${COMMENT_FIELDS} FROM article_comments WHERE item_id=? AND id=?`).bind(itemId,id).first<Record<string,unknown>>();return row?commentRow(row):null;}
+  async addComment(input:CommentInput):Promise<StoredComment|null>{const row=await this.db.prepare(COMMENT_INSERT).bind(randomUUID(),input.itemId,input.visitor,input.name,input.body,input.owner?1:0,new Date().toISOString(),input.itemId).first<Record<string,unknown>>();return row?commentRow(row):null;}
+  async deleteComment(itemId:string,id:string){return (await this.db.prepare('DELETE FROM article_comments WHERE item_id=? AND id=?').bind(itemId,id).run()).meta.changes>0;}
+  async listManagedComments(unreadOnly:boolean,page:number){const rows=await this.db.prepare(managedCommentsSql(unreadOnly)).bind(COMMENT_PAGE_SIZE+1,(page-1)*COMMENT_PAGE_SIZE).all<Record<string,unknown>>();return rows.results.map(managedCommentRow);}
+  async managedCommentCounts(){const row=await this.db.prepare(MANAGED_COMMENT_COUNTS).first<{total:number;unread:number}>();return {total:Number(row?.total||0),unread:Number(row?.unread||0)};}
+  async markCommentRead(itemId:string,id:string,read:boolean){const query=read?this.db.prepare(MARK_COMMENT_READ).bind(new Date().toISOString(),itemId,id):this.db.prepare(MARK_COMMENT_UNREAD).bind(itemId,id);return (await query.run()).meta.changes>0;}
+  async commentPage(itemId:string,id:string){const row=await this.db.prepare(COMMENT_POSITION).bind(itemId,id).first<{preceding:number}>();return row?Math.floor(Number(row.preceding)/COMMENT_PAGE_SIZE)+1:null;}
+  async listCommentReplies(ids:string[]){if(!ids.length)return [];const rows=await this.db.prepare(repliesSql(ids.length)).bind(...ids).all<Record<string,unknown>>();return rows.results.map(replyRow);}
+  async saveCommentReply(itemId:string,id:string,name:string,body:string){const now=new Date().toISOString();const row=await this.db.prepare(SAVE_REPLY).bind(name,body,now,now,itemId,id).first<Record<string,unknown>>();return row?replyRow(row):null;}
+  async deleteCommentReply(itemId:string,id:string){return (await this.db.prepare(DELETE_REPLY).bind(itemId,id).run()).meta.changes>0;}
+  async takeCommentAttempt(client:string,kind:'name'|'comment'){const now=Date.now();const row=await this.db.prepare(COMMENT_ATTEMPT).bind(`guest:${kind}:${client}`,now,now-60000,now-60000).first<{count:number}>();return row!.count<=(kind==='name'?20:5);}
   async getLikes(ids:string[],visitor:string,day:string,owner:boolean):Promise<Record<string,DailyLike>>{
     if(!ids.length)return {};
     const rows=await this.db.prepare(likeStateSql(ids.length)).bind(day,visitor,...ids,owner?1:0).all<{id:string;count:number;liked:number}>();
@@ -36,6 +67,8 @@ export class CloudStore implements SiteStore {
     ]);
     return statisticsResult(result[0].results[0],result[1].results as {day:string;views:number;visitors:number}[],day);
   }
+  async getTravelPlaces():Promise<TravelPlace[]>{const row=await this.db.prepare("SELECT data FROM settings WHERE key='travel'").first<{data:string}>();return row?JSON.parse(row.data):[];}
+  async saveTravelPlaces(places:TravelPlace[]){await this.db.prepare("INSERT INTO settings(key,data) VALUES('travel',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data").bind(JSON.stringify(places)).run();return places;}
   async getProfile():Promise<Profile>{const row=await this.db.prepare("SELECT data FROM settings WHERE key='profile'").first<{data:string}>();return row?{...DEFAULT_PROFILE,...JSON.parse(row.data)}:{...DEFAULT_PROFILE};}
   async saveProfile(profile:Profile){await this.db.prepare("INSERT INTO settings(key,data) VALUES('profile',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data").bind(JSON.stringify(profile)).run();return profile;}
   async getOwner(){return this.db.prepare('SELECT name,password FROM owner WHERE id=1').first<{name:string;password:string}>();}
@@ -51,15 +84,16 @@ export class CloudStore implements SiteStore {
   async getAsset(id:string):Promise<Asset|null>{const row=await this.db.prepare('SELECT data FROM assets WHERE id=?').bind(id).first<{data:string}>();return row?JSON.parse(row.data):null;}
   async listAssets():Promise<Asset[]>{const rows=await this.db.prepare('SELECT data FROM assets').all<{data:string}>();return rows.results.map(row=>JSON.parse(row.data) as Asset).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));}
   async deleteAsset(id:string){return (await this.db.prepare('DELETE FROM assets WHERE id=?').bind(id).run()).meta.changes>0;}
-  async isPublicAsset(id:string){return (await this.getProfile()).avatarId===id||!!await this.db.prepare("SELECT id FROM items WHERE asset_id=? AND visibility='public' LIMIT 1").bind(id).first();}
-  async assetInUse(id:string){return (await this.getProfile()).avatarId===id||!!await this.db.prepare('SELECT id FROM items WHERE asset_id=? LIMIT 1').bind(id).first();}
+  async isPublicAsset(id:string){return (await this.getProfile()).avatarId===id||!!await this.db.prepare(`SELECT id FROM items WHERE ${ITEM_ASSET_REFERENCE_SQL} AND ${publicItemSql()} LIMIT 1`).bind(id,id,id).first();}
+  async assetInUse(id:string){return (await this.getProfile()).avatarId===id||!!await this.db.prepare(`SELECT id FROM items WHERE ${ITEM_ASSET_REFERENCE_SQL} LIMIT 1`).bind(id,id,id).first();}
   async listUnusedAssets():Promise<Asset[]>{
     const avatar=(await this.getProfile()).avatarId;
-    const rows=await this.db.prepare('SELECT asset_id AS id FROM items WHERE asset_id IS NOT NULL').all<{id:string}>();
+    const rows=await this.db.prepare(USED_ITEM_ASSETS_SQL).all<{id:string}>();
     const used=new Set(rows.results.map(row=>String(row.id)));
     return (await this.listAssets()).filter(asset=>asset.mime.startsWith('image/')&&asset.id!==avatar&&!used.has(asset.id));
   }
   async readAsset(id:string){const object=await this.files.get(id);if(!object)throw new ApiError(404,'文件不存在。');return Buffer.from(await object.arrayBuffer());}
+  async streamAsset(id:string,start?:number,end?:number){const object=await this.files.get(id,start===undefined?undefined:{range:{offset:start,length:end!-start+1}});if(!object)throw new ApiError(404,'文件不存在。');return object.body as unknown as ReadableStream<Uint8Array>;}
   async writeAsset(id:string,content:Buffer){await this.files.put(id,content);}
   async removeAsset(id:string){await this.files.delete(id);}
   async createSession(token:string,expires:number){await this.db.batch([this.db.prepare('DELETE FROM sessions WHERE expires<?').bind(Date.now()),this.db.prepare('INSERT INTO sessions(token,expires) VALUES(?,?)').bind(this.hash(token),expires)]);}

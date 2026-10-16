@@ -1,4 +1,6 @@
+import {publicItemSql} from './content-state';
 import type {SiteStatistics} from './types';
+import {articleMetrics} from './articles';
 
 export const STATISTICS_SCHEMA=[
   'CREATE TABLE IF NOT EXISTS site_stats_totals(id INTEGER PRIMARY KEY CHECK(id=1),views INTEGER NOT NULL DEFAULT 0,visitors INTEGER NOT NULL DEFAULT 0,since_day TEXT NOT NULL);',
@@ -13,15 +15,16 @@ export const STATISTICS_SCHEMA=[
 export const RECORD_VISIT_SQL='INSERT INTO site_stats_events(id,visitor,day) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING RETURNING id';
 export const STATISTICS_SUMMARY_SQL=`SELECT t.views AS totalViews,t.visitors AS totalVisitors,t.since_day AS sinceDay,
   COALESCE(d.views,0) AS todayViews,COALESCE(d.visitors,0) AS todayVisitors,
-  (SELECT COUNT(*) FROM items WHERE visibility='public' AND kind='moment') AS moments,
-  (SELECT COUNT(*) FROM items WHERE visibility='public' AND kind='collection') AS collections,
-  (SELECT COUNT(DISTINCT json_extract(data,'$.category')) FROM items WHERE visibility='public' AND trim(COALESCE(json_extract(data,'$.category'),''))!='') AS categories,
-  (SELECT COUNT(DISTINCT j.value) FROM items i,json_each(i.data,'$.tags') j WHERE i.visibility='public' AND trim(j.value)!='') AS tags,
-  COALESCE((SELECT SUM(c.count) FROM item_like_counts c JOIN items i ON c.item_id=i.id WHERE i.visibility='public'),0) AS likes
+  (SELECT COUNT(*) FROM items WHERE ${publicItemSql()} AND kind='moment') AS moments,
+  (SELECT COUNT(*) FROM items WHERE ${publicItemSql()} AND kind='collection') AS collections,
+  (SELECT COUNT(DISTINCT json_extract(data,'$.category')) FROM items WHERE ${publicItemSql()} AND trim(COALESCE(json_extract(data,'$.category'),''))!='') AS categories,
+  (SELECT COUNT(DISTINCT j.value) FROM items i,json_each(i.data,'$.tags') j WHERE ${publicItemSql('i')} AND trim(j.value)!='') AS tags,
+  COALESCE((SELECT SUM(c.count) FROM item_like_counts c JOIN items i ON c.item_id=i.id WHERE ${publicItemSql('i')}),0) AS likes
   FROM site_stats_totals t LEFT JOIN site_stats_days d ON d.day=? WHERE t.id=1`;
 export const STATISTICS_HISTORY_SQL='SELECT day,views,visitors FROM site_stats_days WHERE day>=? AND day<=? ORDER BY day';
+export const STATISTICS_ARTICLES_SQL=`SELECT COALESCE(json_extract(data,'$.body'),'') AS body FROM items WHERE ${publicItemSql()} AND kind='moment' AND json_type(data,'$.article')='object'`;
 export function shiftDay(day:string,amount:number){return new Date(Date.parse(day+'T00:00:00Z')+amount*86400000).toISOString().slice(0,10);}
-export function statisticsResult(row:Record<string,unknown>,history:{day:string;views:number;visitors:number}[],day:string):SiteStatistics{
+export function statisticsResult(row:Record<string,unknown>,history:{day:string;views:number;visitors:number}[],day:string,articles:{body:string}[]=[]):SiteStatistics{
   return {day,sinceDay:String(row.sinceDay),totalViews:Number(row.totalViews),totalVisitors:Number(row.totalVisitors),todayViews:Number(row.todayViews),todayVisitors:Number(row.todayVisitors),
-    content:{moments:Number(row.moments),collections:Number(row.collections),categories:Number(row.categories),tags:Number(row.tags),likes:Number(row.likes)},history};
+    content:{moments:Number(row.moments),collections:Number(row.collections),categories:Number(row.categories),tags:Number(row.tags),likes:Number(row.likes),articles:articles.length,words:articles.reduce((total,article)=>total+articleMetrics(article.body).characters,0)},history};
 }

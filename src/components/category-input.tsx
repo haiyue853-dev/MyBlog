@@ -4,7 +4,7 @@ import {Check,ChevronDown} from 'lucide-react';
 
 const CATEGORIES=['生活','音乐','专辑','舞台','写真','K-pop 小卡','动漫','电视剧','电影','综艺','游戏','其他'];
 
-export function CategoryInput({value,onChange}:{value:string;onChange:(value:string)=>void}){
+export function CategoryInput({value,onChange,suggestions=[],includeDefaults=true}:{value:string;onChange:(value:string)=>void;suggestions?:string[];includeDefaults?:boolean}){
   const id=useId();
   const root=useRef<HTMLDivElement>(null);
   const input=useRef<HTMLInputElement>(null);
@@ -13,7 +13,8 @@ export function CategoryInput({value,onChange}:{value:string;onChange:(value:str
   const [filter,setFilter]=useState(false);
   const [active,setActive]=useState(-1);
   const [placement,setPlacement]=useState({above:false,height:220});
-  const options=filter?CATEGORIES.filter(option=>option.toLowerCase().includes(value.trim().toLowerCase())):CATEGORIES;
+  const choices=[...new Set([...suggestions.filter(Boolean),...(includeDefaults?CATEGORIES:[])])];
+  const options=filter?choices.filter(option=>option.toLowerCase().includes(value.trim().toLowerCase())):choices;
 
   function show(filtered=false){
     const element=root.current;if(!element)return;
@@ -23,14 +24,14 @@ export function CategoryInput({value,onChange}:{value:string;onChange:(value:str
     const above=rect.top-Math.max(container?.top??0,0);
     const upwards=below<160&&above>below;
     setPlacement({above:upwards,height:Math.max(56,Math.min(220,(upwards?above:below)-12))});
-    setFilter(filtered);setActive(filtered?-1:CATEGORIES.indexOf(value));setOpen(true);
+    setFilter(filtered);setActive(filtered?-1:choices.indexOf(value));setOpen(true);
   }
   function choose(option:string){onChange(option);setOpen(false);setActive(-1);}
   function keyboard(event:KeyboardEvent<HTMLInputElement>){
     if(event.nativeEvent.isComposing)return;
     if(event.key==='ArrowDown'||event.key==='ArrowUp'){
       event.preventDefault();
-      if(!open){show();setActive(event.key==='ArrowDown'?0:CATEGORIES.length-1);return;}
+      if(!open){show();setActive(event.key==='ArrowDown'?0:choices.length-1);return;}
       if(!options.length)return;
       setActive(current=>event.key==='ArrowDown'?(current+1)%options.length:(current<=0?options.length-1:current-1));
     }else if(event.key==='Enter'&&open&&active>=0&&options[active]){

@@ -1,20 +1,36 @@
-export type ItemKind = 'moment' | 'collection';
+export type ItemKind = 'moment' | 'collection' | 'video';
+export type PublicationStatus='draft'|'published';
+export type WritingType='article'|'review';
 export type Visibility = 'public' | 'private';
 // 卡片形状。'auto' 是默认值：按上传时量到的原图比例显示，横图就横、竖图就竖。
 // 其余三个是手动覆盖，给「想让一组卡整齐一致」的情况用。
 export type CardRatio = 'auto' | 'portrait' | 'landscape' | 'square';
-export interface ItemInput {id?:string;kind:ItemKind;title:string;body:string;tags:string[];category:string;url:string;assetId:string|null;visibility:Visibility;cardRatio?:CardRatio;imageWidth?:number;imageHeight?:number;}
+export interface ItemImage {assetId:string;width?:number;height?:number;}
+export interface VideoConfig {assetId:string;duration?:number;width?:number;height?:number;}
+export type WatchType='韩剧'|'电影'|'国产电视剧'|'动漫'|'其他';
+export type WatchState='planned'|'watching'|'completed'|'paused'|'dropped';
+export interface WatchConfig {type:WatchType;state:WatchState;rating:number|null;episodes:number|null;watched:number;year:string;reviewId:string|null;synopsis?:string;synopsisSource?:string;}
+export interface ArticleCoverCrop {x:number;y:number;zoom:number;}
+export interface ArticleConfig {summary:string;kicker:string;series:string;spoiler:boolean;coverPosition:'top'|'center'|'bottom';coverCrop?:ArticleCoverCrop;facts:{label:string;value:string}[];quote:string;}
+export interface ItemInput {id?:string;kind:ItemKind;title:string;body:string;tags:string[];category:string;url:string;assetId:string|null;images?:ItemImage[];coverCrop?:ArticleCoverCrop;visibility:Visibility;cardRatio?:CardRatio;imageWidth?:number;imageHeight?:number;article?:ArticleConfig|null;video?:VideoConfig|null;watch?:WatchConfig;status?:PublicationStatus;pinned?:boolean;writingType?:WritingType;}
 export interface Item extends ItemInput {id:string;createdAt:string;updatedAt:string;}
+export interface TrashEntry {item:Item;deletedAt:string;}
 export interface DailyLike {count:number;liked:boolean;}
+export interface VisitorProfile {name:string;}
+export interface CommentInput {itemId:string;visitor:string;name:string;body:string;owner:boolean;}
+export interface StoredComment extends CommentInput {id:string;createdAt:string;}
+export interface CommentReply {commentId:string;name:string;body:string;createdAt:string;updatedAt:string;}
+export interface ArticleComment extends Omit<StoredComment,'visitor'> {canDelete:boolean;reply:CommentReply|null;}
+export interface ManagedComment extends Omit<StoredComment,'visitor'> {unread:boolean;reply:CommentReply|null;item:{id:string;title:string;type:WritingType;visibility:Visibility;status:PublicationStatus};}
 export interface Asset {id:string;name:string;mime:string;size:number;category:string;createdAt:string;}
 export interface AboutInterest {title:string;description:string;}
 export interface Profile {name:string;bio:string;subtitle:string;avatarId:string|null;accent:string;aboutName?:string;aboutIntro?:string;aboutInterests?:AboutInterest[];aboutWish?:string;}
-export interface SiteStatistics {day:string;sinceDay:string;totalViews:number;totalVisitors:number;todayViews:number;todayVisitors:number;content:{moments:number;collections:number;categories:number;tags:number;likes:number};history:{day:string;views:number;visitors:number}[];}
+export interface SiteStatistics {day:string;sinceDay:string;totalViews:number;totalVisitors:number;todayViews:number;todayVisitors:number;content:{moments:number;collections:number;categories:number;tags:number;likes:number;articles:number;words:number};history:{day:string;views:number;visitors:number}[];}
 export interface IrisEvent {type:string;data:Record<string,unknown>;}
 // 侧边栏个人卡片下面的「联系方式」图标。做法参考参照站 yaronluo.com：
 // 社交入口就一排小圆按钮挂在名字/简介下面，不走大块联系人卡片。
 // 注意这里是公开可见的邮箱，改的时候记得它会进公开仓库。
-export const SITE_CONTACT={email:'2138286174@qq.com',github:'https://github.com/haiyue853-dev'} as const;
+export const SITE_CONTACT={email:'hibozeng@qq.com',qq:'1905499552',qqUrl:'https://qm.qq.com/q/8C8gbecOMo',github:'https://github.com/haiyue853-dev'} as const;
 export const DEFAULT_ABOUT_INTERESTS:AboutInterest[]=[
   {title:'游戏 · 快乐时光',description:'永劫无间、CS2。给生活留一点游戏时间。'},
   {title:'音乐 · 循环播放',description:'喜欢 K-pop 音乐，让喜欢的旋律陪着日常。'},

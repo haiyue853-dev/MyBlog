@@ -4,6 +4,8 @@ data/
 .test-data/
 .env
 .env.local
+.env.windows
+deploy/windows/__pycache__/
 .env.*.local
 *.log
 test-results/

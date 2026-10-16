@@ -1,12 +1,23 @@
+import {activeItemSql,isPublicItem,itemForViewer,publicItemSql} from './content-state';
+import {visibleWatchLinks} from './watch-collection';
+import {defaultWritingPreferences,parseWritingPreferences,type IrisWritingPreferences} from './iris-writing-preferences';
+import {ApiError} from './http';
+import type {TravelPlace} from './travel';
+import {TRASH_SCHEMA,TRASH_PAGE_SIZE,TRASH_LIST,TRASH_ONE,MOVE_TO_TRASH,RESTORE_ITEM,PURGE_ITEM,trashRow} from './trash-schema';
 import {DatabaseSync} from 'node:sqlite';
-import {mkdirSync} from 'node:fs';
+import {mkdirSync,createReadStream} from 'node:fs';
+import {Readable} from 'node:stream';
 import {readFile,writeFile,unlink} from 'node:fs/promises';
 import {resolve,join} from 'node:path';
 import {createHash,randomUUID} from 'node:crypto';
 import {DEFAULT_PROFILE,type Asset,type Item,type ItemInput,type Profile} from './types';
 import type {DailyLike} from './types';
 import {LIKES_SCHEMA,DAILY_LIKE_SQL,likeStateSql} from './likes-schema';
-import {STATISTICS_SCHEMA,RECORD_VISIT_SQL,STATISTICS_SUMMARY_SQL,STATISTICS_HISTORY_SQL,shiftDay,statisticsResult} from './statistics-schema';
+import {STATISTICS_SCHEMA,RECORD_VISIT_SQL,STATISTICS_SUMMARY_SQL,STATISTICS_HISTORY_SQL,STATISTICS_ARTICLES_SQL,shiftDay,statisticsResult} from './statistics-schema';
+import {ITEM_ASSET_REFERENCE_SQL,USED_ITEM_ASSETS_SQL} from './item-images';
+import {COMMENTS_SCHEMA,COMMENT_FIELDS,COMMENT_INSERT,COMMENT_ATTEMPT,COMMENT_PAGE_SIZE,commentRow,managedCommentsSql,MANAGED_COMMENT_COUNTS,COMMENT_POSITION,MARK_COMMENT_READ,MARK_COMMENT_UNREAD,managedCommentRow} from './comments-schema';
+import {repliesSql,SAVE_REPLY,DELETE_REPLY,replyRow} from './comments-schema';
+import type {CommentInput,StoredComment,VisitorProfile} from './types';
 
 export class Store {
   readonly db:DatabaseSync;
@@ -22,14 +33,36 @@ export class Store {
       CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY,expires INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS login_attempts(id INTEGER PRIMARY KEY CHECK(id=1),count INTEGER NOT NULL,started INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS auth_limits(key TEXT PRIMARY KEY,count INTEGER NOT NULL,started INTEGER NOT NULL);`);
+    this.db.exec(TRASH_SCHEMA);
     this.db.exec(LIKES_SCHEMA);
     this.db.exec(STATISTICS_SCHEMA);
+    this.db.exec(COMMENTS_SCHEMA);
   }
   close(){this.db.close();}
-  listItems(owner:boolean):Item[]{const rows=this.db.prepare(owner?'SELECT data FROM items':'SELECT data FROM items WHERE visibility=\'public\'').all();return rows.map(row=>JSON.parse(String(row.data)) as Item).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));}
-  getItem(id:string,owner=true):Item|null{const row=this.db.prepare('SELECT data,visibility FROM items WHERE id=?').get(id);return row&&(owner||row.visibility==='public')?JSON.parse(String(row.data)):null;}
-  saveItem(input:ItemInput):Item{const existing=input.id?this.getItem(input.id):null;const item:Item={...input,id:existing?.id||randomUUID(),createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};this.db.prepare('INSERT INTO items(id,kind,visibility,asset_id,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,visibility=excluded.visibility,asset_id=excluded.asset_id,data=excluded.data').run(item.id,item.kind,item.visibility,item.assetId,JSON.stringify(item));return item;}
+  listItems(owner:boolean):Item[]{const rows=this.db.prepare(`SELECT data FROM items WHERE ${owner?activeItemSql():publicItemSql()}`).all();return visibleWatchLinks(rows.map(row=>JSON.parse(String(row.data)) as Item).sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).map(item=>itemForViewer(item,owner)),owner);}
+  getItem(id:string,owner=true):Item|null{const row=this.db.prepare(`SELECT data,visibility FROM items WHERE id=? AND ${activeItemSql()}`).get(id);const item=row?JSON.parse(String(row.data)) as Item:null;return item&&(owner||isPublicItem(item))?itemForViewer(item,owner):null;}
+  saveItem(input:ItemInput):Item{const existing=input.id?this.getItem(input.id):null;const item:Item={...input,id:existing?.id||input.id||randomUUID(),createdAt:existing?.createdAt||new Date().toISOString(),updatedAt:new Date().toISOString()};const result=this.db.prepare(`INSERT INTO items(id,kind,visibility,asset_id,data) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,visibility=excluded.visibility,asset_id=excluded.asset_id,data=excluded.data WHERE ${activeItemSql()}`).run(item.id,item.kind,item.visibility,item.assetId,JSON.stringify(item));if(!result.changes)throw new ApiError(409,'这项内容已在回收站，请先恢复。');return item;}
+  listTrashedItems(page:number){return this.db.prepare(TRASH_LIST).all(TRASH_PAGE_SIZE+1,(page-1)*TRASH_PAGE_SIZE).map(trashRow);}
+  getTrashedItem(id:string){const row=this.db.prepare(TRASH_ONE).get(id);return row?trashRow(row):null;}
+  trashCount(){return Number(this.db.prepare('SELECT COUNT(*) AS total FROM item_trash').get()!.total);}
+  trashItem(id:string){return this.db.prepare(MOVE_TO_TRASH).run(new Date().toISOString(),id).changes>0;}
+  restoreItem(id:string){return this.db.prepare(RESTORE_ITEM).run(id).changes>0;}
+  purgeTrashedItem(id:string){return this.db.prepare(PURGE_ITEM).run(id).changes>0;}
   deleteItem(id:string){return this.db.prepare('DELETE FROM items WHERE id=?').run(id).changes>0;}
+  getVisitor(visitor:string):VisitorProfile|null{const row=this.db.prepare('SELECT name FROM visitor_profiles WHERE visitor=?').get(visitor);return row?{name:String(row.name)}:null;}
+  saveVisitor(visitor:string,name:string):VisitorProfile{this.db.prepare('INSERT INTO visitor_profiles(visitor,name) VALUES(?,?) ON CONFLICT(visitor) DO UPDATE SET name=excluded.name').run(visitor,name);return {name};}
+  listComments(itemId:string,page:number):StoredComment[]{return this.db.prepare(`SELECT ${COMMENT_FIELDS} FROM article_comments WHERE item_id=? ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?`).all(itemId,COMMENT_PAGE_SIZE+1,(page-1)*COMMENT_PAGE_SIZE).map(commentRow);}
+  getComment(itemId:string,id:string):StoredComment|null{const row=this.db.prepare(`SELECT ${COMMENT_FIELDS} FROM article_comments WHERE item_id=? AND id=?`).get(itemId,id);return row?commentRow(row):null;}
+  addComment(input:CommentInput):StoredComment|null{const row=this.db.prepare(COMMENT_INSERT).get(randomUUID(),input.itemId,input.visitor,input.name,input.body,input.owner?1:0,new Date().toISOString(),input.itemId);return row?commentRow(row):null;}
+  deleteComment(itemId:string,id:string){return this.db.prepare('DELETE FROM article_comments WHERE item_id=? AND id=?').run(itemId,id).changes>0;}
+  listManagedComments(unreadOnly:boolean,page:number){return this.db.prepare(managedCommentsSql(unreadOnly)).all(COMMENT_PAGE_SIZE+1,(page-1)*COMMENT_PAGE_SIZE).map(managedCommentRow);}
+  managedCommentCounts(){const row=this.db.prepare(MANAGED_COMMENT_COUNTS).get()!;return {total:Number(row.total),unread:Number(row.unread)};}
+  markCommentRead(itemId:string,id:string,read:boolean){return read?this.db.prepare(MARK_COMMENT_READ).run(new Date().toISOString(),itemId,id).changes>0:this.db.prepare(MARK_COMMENT_UNREAD).run(itemId,id).changes>0;}
+  commentPage(itemId:string,id:string){const row=this.db.prepare(COMMENT_POSITION).get(itemId,id);return row?Math.floor(Number(row.preceding)/COMMENT_PAGE_SIZE)+1:null;}
+  listCommentReplies(ids:string[]){return ids.length?this.db.prepare(repliesSql(ids.length)).all(...ids).map(replyRow):[];}
+  saveCommentReply(itemId:string,id:string,name:string,body:string){const now=new Date().toISOString();const row=this.db.prepare(SAVE_REPLY).get(name,body,now,now,itemId,id);return row?replyRow(row):null;}
+  deleteCommentReply(itemId:string,id:string){return this.db.prepare(DELETE_REPLY).run(itemId,id).changes>0;}
+  takeCommentAttempt(client:string,kind:'name'|'comment'){const now=Date.now();const row=this.db.prepare(COMMENT_ATTEMPT).get(`guest:${kind}:${client}`,now,now-60000,now-60000)!;return Number(row.count)<=(kind==='name'?20:5);}
   getLikes(ids:string[],visitor:string,day:string,owner:boolean):Record<string,DailyLike>{
     if(!ids.length)return {};
     const rows=this.db.prepare(likeStateSql(ids.length)).all(day,visitor,...ids,owner?1:0);
@@ -49,25 +82,31 @@ export class Store {
   getStatistics(day:string){
     const summary=this.db.prepare(STATISTICS_SUMMARY_SQL).get(day)!;
     const history=this.db.prepare(STATISTICS_HISTORY_SQL).all(shiftDay(day,-13),day) as unknown as {day:string;views:number;visitors:number}[];
-    return statisticsResult(summary,history,day);
+    const articles=this.db.prepare(STATISTICS_ARTICLES_SQL).all() as unknown as {body:string}[];
+    return statisticsResult(summary,history,day,articles);
   }
   addAsset(input:Omit<Asset,'id'|'createdAt'>):Asset{const asset={...input,id:randomUUID(),createdAt:new Date().toISOString()};this.db.prepare('INSERT INTO assets(id,data) VALUES(?,?)').run(asset.id,JSON.stringify(asset));return asset;}
   getAsset(id:string):Asset|null{const row=this.db.prepare('SELECT data FROM assets WHERE id=?').get(id);return row?JSON.parse(String(row.data)):null;}
   listAssets():Asset[]{return this.db.prepare('SELECT data FROM assets').all().map(row=>JSON.parse(String(row.data)) as Asset).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));}
   deleteAsset(id:string){return this.db.prepare('DELETE FROM assets WHERE id=?').run(id).changes>0;}
   readAsset(id:string){return readFile(join(this.directory,'files',id));}
+  streamAsset(id:string,start?:number,end?:number){return Readable.toWeb(createReadStream(join(this.directory,'files',id),{start,end})) as ReadableStream<Uint8Array>;}
   writeAsset(id:string,content:Buffer){return writeFile(join(this.directory,'files',id),content,{flag:'wx'});}
   async removeAsset(id:string){await unlink(join(this.directory,'files',id)).catch(error=>{if(error.code!=='ENOENT')throw error;});}
-  isPublicAsset(id:string):boolean{return this.getProfile().avatarId===id||!!this.db.prepare('SELECT id FROM items WHERE asset_id=? AND visibility=\'public\' LIMIT 1').get(id);}
-  assetInUse(id:string):boolean{return this.getProfile().avatarId===id||!!this.db.prepare('SELECT id FROM items WHERE asset_id=? LIMIT 1').get(id);}
+  isPublicAsset(id:string):boolean{return this.getProfile().avatarId===id||!!this.db.prepare(`SELECT id FROM items WHERE ${ITEM_ASSET_REFERENCE_SQL} AND ${publicItemSql()} LIMIT 1`).get(id,id,id);}
+  assetInUse(id:string):boolean{return this.getProfile().avatarId===id||!!this.db.prepare(`SELECT id FROM items WHERE ${ITEM_ASSET_REFERENCE_SQL} LIMIT 1`).get(id,id,id);}
   // 换了配图之后，旧图不会自己消失（删的是条目指向，不是文件），攒久了就是一堆没人引用的孤儿。
   // 这里一次性把「正在被用」的 id 捞出来，剩下的都是可以安全清掉的。
   listUnusedAssets():Asset[]{
     const avatar=this.getProfile().avatarId;
-    const used=new Set((this.db.prepare('SELECT asset_id AS id FROM items WHERE asset_id IS NOT NULL').all() as {id:string}[]).map(row=>String(row.id)));
+    const used=new Set((this.db.prepare(USED_ITEM_ASSETS_SQL).all() as {id:string}[]).map(row=>String(row.id)));
     return this.listAssets().filter(asset=>asset.mime.startsWith('image/')&&asset.id!==avatar&&!used.has(asset.id));
   }
+  getTravelPlaces():TravelPlace[]{const row=this.db.prepare("SELECT data FROM settings WHERE key='travel'").get();return row?JSON.parse(String(row.data)):[];}
+  saveTravelPlaces(places:TravelPlace[]){this.db.prepare("INSERT INTO settings(key,data) VALUES('travel',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data").run(JSON.stringify(places));return places;}
   getProfile():Profile{const row=this.db.prepare('SELECT data FROM settings WHERE key=\'profile\'').get();return row?{...DEFAULT_PROFILE,...JSON.parse(String(row.data))}:{...DEFAULT_PROFILE};}
+  getIrisWritingPreferences():IrisWritingPreferences{const row=this.db.prepare("SELECT data FROM settings WHERE key='iris-writing-preferences'").get();return row?parseWritingPreferences(JSON.parse(String(row.data))):defaultWritingPreferences();}
+  saveIrisWritingPreferences(input:IrisWritingPreferences){const preferences=parseWritingPreferences(input);this.db.prepare("INSERT INTO settings(key,data) VALUES('iris-writing-preferences',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data").run(JSON.stringify(preferences));return preferences;}
   saveProfile(profile:Profile){this.db.prepare('INSERT INTO settings(key,data) VALUES(\'profile\',?) ON CONFLICT(key) DO UPDATE SET data=excluded.data').run(JSON.stringify(profile));return profile;}
   getOwner():{name:string;password:string}|null{const row=this.db.prepare('SELECT name,password FROM owner WHERE id=1').get();return row?{name:String(row.name),password:String(row.password)}:null;}
   setOwner(name:string,password:string){this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('INSERT INTO owner(id,name,password) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,password=excluded.password').run(name,password);this.db.exec('DELETE FROM sessions; COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}}

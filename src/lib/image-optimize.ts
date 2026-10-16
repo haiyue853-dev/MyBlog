@@ -6,6 +6,15 @@
 export const IMAGE_MAX_EDGE=1600;
 export const IMAGE_QUALITY=0.82;
 
+export function measureImage(file:File):Promise<{width:number;height:number}|null>{
+  return new Promise(resolve=>{
+    const url=URL.createObjectURL(file);const image=new Image();
+    const done=(value:{width:number;height:number}|null)=>{URL.revokeObjectURL(url);resolve(value);};
+    image.onload=()=>done(image.naturalWidth>0&&image.naturalHeight>0?{width:image.naturalWidth,height:image.naturalHeight}:null);
+    image.onerror=()=>done(null);image.src=url;
+  });
+}
+
 // 已经这么小的图就不再动它，免得二次有损反而变糊。
 const SKIP_BELOW=400*1024;
 

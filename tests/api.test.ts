@@ -22,6 +22,27 @@ test('API requires login for private operations',async()=>{
   assert.equal((await request('items','POST',{title:'secret'})).status,401);
   assert.equal((await request('iris/health')).status,401);
 });
+test('all owner editing and management endpoints reject anonymous and forged sessions',async()=>{
+  const id='00000000-0000-4000-8000-000000000001';
+  const operations:[string,string][]=[
+    ['items','POST'],[`items/${id}`,'PUT'],[`items/${id}`,'PATCH'],[`items/${id}`,'DELETE'],
+    ['files','GET'],['files','POST'],[`files/${id}`,'DELETE'],['files?cleanup=1','POST'],
+    ['profile','PUT'],['travel','PUT'],['trash','GET'],[`trash/${id}`,'POST'],[`trash/${id}`,'DELETE'],
+    ['backups','GET'],['backups','POST'],['comments','GET'],[`comments/${id}/${id}/reply`,'PUT'],
+    [`comments/${id}/${id}/reply`,'DELETE'],[`comments/${id}/${id}`,'PATCH'],
+    ['iris/health','GET'],['iris/sessions','POST'],['iris/chat/stream','POST'],['iris/blog/prepare','POST'],
+  ];
+  const before=store.listItems(true);
+  const expired='e'.repeat(64);store.createSession(expired,Date.now()-1);
+  const revoked='d'.repeat(64);store.createSession(revoked,Date.now()+60000);store.deleteSession(revoked);
+  for(const session of ['', `world-session=${'f'.repeat(64)}`,`world-session=${expired}`,`world-session=${revoked}`]){
+    for(const [path,method] of operations){
+      const response=await request(path,method,method==='GET'?undefined:{},session);
+      assert.equal(response.status,401,`${method} ${path} must require the owner`);
+    }
+  }
+  assert.deepEqual(store.listItems(true),before);
+});
 test('login issues HttpOnly cookie, rejects cross-origin and invalid password',async()=>{
   assert.equal((await request('auth/login','POST',{password:'test-owner-password'},'', 'http://bad.example')).status,403);
   assert.equal((await request('auth/login','POST',{password:'wrong'})).status,401);
@@ -43,6 +64,8 @@ test('private file and metadata are protected until explicitly attached to a pub
   assert.equal((await request(`items/${item.id}`,'PUT',{...item,visibility:'private'},cookie)).status,200);
   assert.equal((await request(`files/${asset.id}`)).status,401);
   assert.equal((await request(`items/${item.id}`,'DELETE',undefined,cookie)).status,200);
+  assert.equal((await request(`files/${asset.id}`,'DELETE',undefined,cookie)).status,409);
+  assert.equal((await request(`trash/${item.id}`,'DELETE',undefined,cookie)).status,200);
   assert.equal((await request(`files/${asset.id}`,'DELETE',undefined,cookie)).status,200);
 });
 test('images nobody references can be listed and cleaned up',async()=>{
@@ -67,6 +90,7 @@ test('images nobody references can be listed and cleaned up',async()=>{
   assert.equal((await request(`files/${kept.id}`,'GET',undefined,cookie)).status,200);
   assert.equal((await request(`files/${document.id}`,'GET',undefined,cookie)).status,200);
   await request(`items/${item.id}`,'DELETE',undefined,cookie);
+  await request(`trash/${item.id}`,'DELETE',undefined,cookie);
   await request(`files/${kept.id}`,'DELETE',undefined,cookie);
   await request(`files/${document.id}`,'DELETE',undefined,cookie);
 });
@@ -81,6 +105,34 @@ test('Iris proxy preserves local content events without exposing private endpoin
     const plain=await request('iris/knowledge/doc-plain/source','GET',undefined,cookie);assert.equal(plain.headers.get('content-disposition'),'attachment; filename="quarterly report.xlsx"');
     const traversal=await request('iris/knowledge/doc-traversal/source','GET',undefined,cookie);assert.equal(traversal.headers.get('content-disposition'),'attachment; filename="passwd"');
   }finally{await new Promise<void>(resolve=>upstream.close(()=>resolve()));delete process.env.IRIS_BASE_URL;}
+});
+test('all Iris endpoints reject missing, forged, expired and revoked owner sessions before reaching upstream',async()=>{
+  let calls=0;const upstream=createServer((req,res)=>{calls++;res.setHeader('Content-Type','application/json');res.end('{"status":"ok"}');});
+  await new Promise<void>(resolve=>upstream.listen(0,'127.0.0.1',resolve));
+  const previousBase=process.env.IRIS_BASE_URL;
+  process.env.IRIS_BASE_URL=`http://127.0.0.1:${(upstream.address() as {port:number}).port}`;
+  const expired='a'.repeat(64);const valid='b'.repeat(64);
+  store.createSession(expired,Date.now()-1000);store.createSession(valid,Date.now()+60000);
+  try{
+    const endpoints=[['iris/health','GET'],['iris/sessions','GET'],['iris/sessions/private-session','GET'],
+      ['iris/knowledge','GET'],['iris/knowledge/collections','GET'],['iris/knowledge/private-document','GET'],
+      ['iris/knowledge/private-document/source','GET'],['iris/sessions','POST'],['iris/chat/stream','POST'],['iris/import','POST']] as const;
+    for(const session of ['',`world-session=${'f'.repeat(64)}`,`world-session=${expired}`]){
+      for(const [path,method] of endpoints){const response=await request(path,method,method==='POST'?{}:undefined,session);assert.equal(response.status,401,`${method} ${path}`);assert.equal(response.headers.get('cache-control'),'no-store');}
+    }
+    assert.equal(calls,0);
+    const ownerCookie=`world-session=${valid}`;
+    assert.equal((await request('iris/chat/stream','POST',{session_id:'private',message:'hello'},ownerCookie,'https://evil.test')).status,403);
+    assert.equal(calls,0);
+    assert.equal((await request('iris/health','GET',undefined,ownerCookie)).status,200);assert.equal(calls,1);
+    await request('auth/logout','POST',undefined,ownerCookie);
+    for(const [path,method] of endpoints)assert.equal((await request(path,method,method==='POST'?{}:undefined,ownerCookie)).status,401);
+    assert.equal(calls,1);
+  }finally{
+    store.deleteSession(valid);store.deleteSession(expired);
+    if(previousBase===undefined)delete process.env.IRIS_BASE_URL;else process.env.IRIS_BASE_URL=previousBase;
+    await new Promise<void>(resolve=>upstream.close(()=>resolve()));
+  }
 });
 test('offline Iris returns a useful 503 while the private file cabinet still works',async()=>{
   const unavailable=createServer();await new Promise<void>(resolve=>unavailable.listen(0,'127.0.0.1',resolve));

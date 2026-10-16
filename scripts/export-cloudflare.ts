@@ -31,7 +31,7 @@ export async function exportCloudflare(source:string,destination:string){
     const password=migratePassword(String(owner.password));
     for(const table of ['items','assets','settings'] as const){
       // Iris tokens/settings and old sessions deliberately do not migrate.
-      const rows=db.prepare(table==='settings'?"SELECT key,data FROM settings WHERE key='profile'":`SELECT * FROM ${table}`).all();
+      const rows=db.prepare(table==='settings'?"SELECT key,data FROM settings WHERE key IN ('profile','travel')":`SELECT * FROM ${table}`).all();
       if(table==='items')itemCount=rows.length;
       for(const row of rows){
         const parts=chunks(String(row.data));const key=table==='settings'?'key':'id';const id=String(row[key]);
@@ -39,6 +39,10 @@ export async function exportCloudflare(source:string,destination:string){
         else sql.push(`INSERT OR REPLACE INTO ${table}(${key},data) VALUES(${quote(id)},${quote(parts[0])});`);
         for(const part of parts.slice(1))sql.push(`UPDATE ${table} SET data=data||${quote(part)} WHERE ${key}=${quote(id)};`);
       }
+    }
+    for(const [table,columns] of [['item_trash',['item_id','deleted_at']],['visitor_profiles',['visitor','name']],['article_comments',['id','item_id','visitor','name','body','owner','created_at']],['comment_reads',['comment_id','read_at']],['comment_replies',['comment_id','name','body','created_at','updated_at']]] as const){
+      if(!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table))continue;
+      for(const row of db.prepare(`SELECT * FROM ${table}`).all())sql.push(`INSERT OR IGNORE INTO ${table}(${columns.join(',')}) VALUES(${columns.map(column=>column==='owner'?String(Number(row[column])):quote(String(row[column]))).join(',')});`);
     }
     assets=db.prepare('SELECT data FROM assets').all().map(row=>JSON.parse(String(row.data)) as Asset);
     // Owner goes last: a completed remote owner means the initial import has finished.

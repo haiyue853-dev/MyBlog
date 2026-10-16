@@ -9,9 +9,9 @@ const root=document.getElementById('root')!;
 async function start(){
   const data=await api<{items:Item[];profile:Profile;owner:boolean;configured:boolean}>('bootstrap');
   const requested=new URLSearchParams(location.search).get('view');
-  const view=['home','life','collection','about','stats','files','iris','settings'].includes(requested||'')?requested as 'home'|'life'|'collection'|'about'|'stats'|'files'|'iris'|'settings':'home';
+  const view=['trash','content','home','life','collection','about','stats','files','iris','settings'].includes(requested||'')?requested as 'trash'|'content'|'home'|'life'|'collection'|'about'|'stats'|'files'|'iris'|'settings':'home';
   document.title=`${data.profile.name} · 我的个人小屋`;
-  createRoot(root).render(<Space initialItems={data.items} initialProfile={data.profile} initialOwner={data.owner} configured={data.configured} initialView={view}/>);
+  createRoot(root).render(<Space initialItems={data.items} initialProfile={data.profile} initialOwner={data.owner} configured={data.configured} initialView={view} articlePages={false}/>);
 }
 function retry(){root.replaceChildren();const message=document.createElement('p');message.textContent='暂时没能打开小屋，请稍后再试。';const button=document.createElement('button');button.textContent='重新打开';button.onclick=()=>{button.disabled=true;void start().catch(retry);};root.append(message,button);}
 void start().catch(retry);

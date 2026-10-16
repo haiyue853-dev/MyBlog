@@ -2,12 +2,16 @@ import {createHash,timingSafeEqual} from 'node:crypto';
 import type {D1Database,R2Bucket,Fetcher} from '@cloudflare/workers-types';
 import {CloudStore} from './store';
 import {withRuntime} from '../src/lib/runtime';
-import {ApiError,handleErrors,isOwner,json,renewSession} from '../src/lib/http';
+import {ApiError,handleErrors,isOwner,json,renewSession,requireOwner} from '../src/lib/http';
 import {authApi} from '../src/lib/api/auth';
+import {trashApi} from '../src/lib/api/trash';
 import {itemsApi} from '../src/lib/api/items';
 import {likesApi} from '../src/lib/api/likes';
 import {statisticsApi} from '../src/lib/api/statistics';
+import {visitorApi} from '../src/lib/api/visitor';
+import {commentsApi} from '../src/lib/api/comments';
 import {profileApi} from '../src/lib/api/profile';
+import {travelApi} from '../src/lib/api/travel';
 import {filesApi} from '../src/lib/api/files';
 import {irisApi} from '../src/lib/api/iris';
 import {CLOUD_PASSWORD_SCHEME} from '../src/lib/cloud-password';
@@ -39,12 +43,17 @@ async function dispatch(request:Request,path:string[],store:CloudStore,env:Cloud
     return json({owner,configured:!!await store.getOwner(),profile:await store.getProfile(),items:await store.listItems(owner)});
   }
   if(path[0]==='auth'&&path.length<=2)return authApi(request,path);
+  if(path[0]==='trash'&&path.length<=2)return trashApi(request,path);
   if(path[0]==='items'&&path.length<=2)return itemsApi(request,path);
   if(path[0]==='likes'&&path.length<=2)return likesApi(request,path);
   if(path[0]==='stats'&&path.length===1)return statisticsApi(request);
+  if(path[0]==='visitor'&&path.length===1)return visitorApi(request);
+  if(path[0]==='comments'&&path.length>=1&&path.length<=4)return commentsApi(request,path);
   if(path[0]==='profile'&&path.length===1)return profileApi(request);
+  if(path[0]==='travel'&&path.length===1)return travelApi(request);
   if(path[0]==='files'&&path.length<=2)return filesApi(request,path);
   if(path[0]==='iris'){
+    await requireOwner(request);
     if(!env.IRIS_BASE_URL)throw new ApiError(503,'Iris 尚未接入，资料柜仍可正常使用。');
     return irisApi(request,path);
   }
